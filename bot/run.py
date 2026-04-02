@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-نقطة التشغيل الرئيسية للبوت - نظام Long Polling
-Main bot entry point - Long Polling System
+نقطة التشغيل الرئيسية للبوت - نظام Long Polling مع خادم ويب لـ Render
+Main bot entry point - Long Polling System with Web Server for Render
 
 ⚠️ تأكد من تشغيل البوت بشكل مستمر على Render
 ⚠️ Make sure to run the bot continuously on Render
 """
 
 import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 from config import BOT_TOKEN, TELEGRAM_API_URL
 from bot import handle_update
@@ -19,6 +21,7 @@ OFFSET_FILE = 'offset.txt'
 LOG_FILE = 'log.txt'
 POLLING_TIMEOUT = 30  # Timeout طويل للحصول على تحديثات
 SLEEP_TIME = 2  # وقت الانتظار بين الطلبات
+PORT = int(os.environ.get('PORT', 8080))  # منفذ Render
 
 
 def read_offset():
@@ -125,6 +128,70 @@ def process_updates(updates):
             # الاستمرار في معالجة التحديثات الأخرى
 
 
+def health_check_handler():
+    """
+    معالج طلب الصحة - للحفاظ على البوت نشطاً
+    Health check handler - Keep the bot alive
+    """
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/':
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                message = """
+                <html>
+                <head><title>SMM Bot is Running</title></head>
+                <body>
+                    <h1>✅ SMM Bot is Running!</h1>
+                    <p>The bot is working perfectly using Long Polling.</p>
+                    <p>No webhook needed - everything is handled automatically.</p>
+                </body>
+                </html>
+                """
+                self.wfile.write(message.encode())
+            elif self.path == '/health':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"status": "healthy", "bot": "running"}')
+            else:
+                self.send_response(404)
+                self.end_headers()
+        
+        def log_message(self, format, *args):
+            # كتم سجلات HTTP
+            pass
+    
+    return HealthHandler
+
+
+def start_web_server():
+    """
+    بدء خادم الويب البسيط لـ Render
+    Start simple web server for Render
+    
+    ⚠️ هذا ضروري فقط لـ Render
+    ⚠️ This is only needed for Render
+    """
+    try:
+        server = HTTPServer(('0.0.0.0', PORT), health_check_handler())
+        log_error(f"🌐 خادم الويب يعمل على المنفذ {PORT}")
+        print(f"🌐 Web server running on port {PORT}")
+        
+        # تشغيل الخادم في خيط منفصل
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        
+        log_error(f"✅ تم بدء خادم الويب بنجاح")
+        return server
+        
+    except Exception as e:
+        log_error(f"❌ خطأ في بدء خادم الويب: {str(e)}")
+        print(f"❌ Error starting web server: {str(e)}")
+        return None
+
+
 def main_loop():
     """
     الحلقة الرئيسية للبوت - لا تتوقف أبداً
@@ -136,6 +203,13 @@ def main_loop():
     log_error("=" * 50)
     log_error("🚀 بدء تشغيل البوت...")
     log_error("=" * 50)
+    
+    # 🌐 بدء خادم الويب لـ Render
+    server = start_web_server()
+    
+    if not server:
+        log_error("⚠️ فشل بدء خادم الويب، لكن البوت سيستمر")
+        print("⚠️ Failed to start web server, but bot will continue")
     
     # قراءة offset الابتدائي
     offset = read_offset()
@@ -161,6 +235,8 @@ def main_loop():
             
         except KeyboardInterrupt:
             log_error("⚠️ توقف البوت بواسطة المستخدم")
+            if server:
+                server.shutdown()
             break
         
         except Exception as e:
@@ -183,8 +259,12 @@ if __name__ == '__main__':
     ⚠️ تأكد من تشغيل هذا الملف لتشغيل البوت
     ⚠️ Make sure to run this file to start the bot
     """
+    import os
+    
     try:
         log_error("🎯 بدء بوت SMM...")
+        print("🚀 Starting SMM Bot...")
+        print(f"🌐 Running on port {os.environ.get('PORT', 8080)}")
         main_loop()
     except Exception as e:
         log_error(f"❌ خطأ فادح عند البدء: {str(e)}")
