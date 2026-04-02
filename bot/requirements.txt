@@ -1,0 +1,8 @@
+# المتطلبات الأساسية لتشغيل البوت
+# Requirements for running the bot
+
+# مكتبة requests للاتصال بـ API
+requests==2.31.0
+
+# لا حاجة لمكتبات إضافية - نستخدم requests فقط للتوافق مع Render Free
+# No additional libraries needed - using only requests for Render Free compatibility
