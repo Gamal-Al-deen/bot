@@ -7,5 +7,8 @@ requests==2.31.0
 # Flask لخادم Webhook (مطلوب لـ Render)
 flask==3.0.0
 
+# Gunicorn لخادم الإنتاج (أفضل من Flask development server)
+gunicorn==21.2.0
+
 # لا حاجة لمكتبات إضافية
 # No additional libraries needed
