@@ -123,8 +123,22 @@ def handle_callback_query(callback_query):
         # الرد على الاستفسار أولاً
         answer_callback_query(callback_query_id)
         
+        log_error(f"🔘 تم الضغط على زر: {data} من المستخدم {user_id}")
+        
         # معالجة البيانات المختلفة
-        if data.startswith('service_'):
+        if data == 'balance':
+            # طلب الرصيد
+            handle_balance(chat_id, user_id)
+        
+        elif data == 'services':
+            # طلب قائمة الخدمات
+            handle_services(chat_id, user_id)
+        
+        elif data == 'new_order':
+            # طلب جديد
+            handle_new_order(chat_id, user_id)
+        
+        elif data.startswith('service_'):
             # اختيار خدمة
             service_id = data.replace('service_', '')
             handle_service_selection(chat_id, user_id, service_id)
@@ -136,6 +150,13 @@ def handle_callback_query(callback_query):
         elif data == 'cancel_order':
             # إلغاء الطلب
             handle_order_cancel(chat_id, user_id)
+        
+        elif data == 'back':
+            # زر العودة - إعادة عرض القائمة الرئيسية
+            handle_start_command(chat_id, user_id)
+        
+        else:
+            log_error(f"⚠️  callback_data غير معروف: {data}")
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_callback_query: {str(e)}")
