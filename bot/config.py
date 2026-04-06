@@ -6,7 +6,7 @@ Configuration file - Contains all static variables
 
 # ⚠️ ضع هنا توكن البوت الخاص بك
 # ⚠️ Put your bot token here
-BOT_TOKEN = "8752782414:AAG-Iw5oEeVhRh06kO_MYbkMMvAmxzSGc6Q"
+BOT_TOKEN = "8641656014:AAE4n6WqbnusGtWkf5a-RuMXomVRGIN_J5M"
 
 # ⚠️ ضع هنا مفتاح API الخاص بموقع SMM
 # ⚠️ Put your SMM website API key here
