@@ -23,7 +23,7 @@ def test_api_connection():
     print(f"🔑 API Key: {API_KEY[:10]}... (مخفي)")
     
     # التحقق من القيم الافتراضية
-    if API_URL == "https://smm-provider.com/api/v2":
+    if API_URL == "https://smmparty.com/api/v2":
         print("\n❌ خطأ حرج: API_URL لا يزال القيمة الافتراضية!")
         print("   هذا رابط وهمي غير موجود.")
         print("   يرجى تحديثه في config.py")

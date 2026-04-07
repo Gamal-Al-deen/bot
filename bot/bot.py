@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-المنطق الرئيسي للبوت - معالجة الأوامر والتحديثات
-Main bot logic - Handle commands and updates
+المنطق الرئيسي للبوت - معالجة الأوامر والتحديثات (نسخة متقدمة)
+Main bot logic - Handle commands and updates (Advanced Version)
 """
 
 from api import SMM_API
@@ -14,15 +14,41 @@ from functions import (
 from config import (
     STATE_WAITING_SERVICE, 
     STATE_WAITING_LINK, 
-    STATE_WAITING_QUANTITY
+    STATE_WAITING_QUANTITY,
+    STATE_WAITING_ADMIN_ADD_BALANCE,
+    STATE_WAITING_ADMIN_REMOVE_BALANCE,
+    STATE_WAITING_ADMIN_USER_ID,
+    USER_LOCK_TIMEOUT
 )
-
+from users_manager import (
+    getBalance, 
+    addBalance, 
+    deductBalance, 
+    setBalance,
+    getUserData,
+    getAllUsersCount
+)
+from pricing_system import (
+    calculatePrice,
+    setPercentPricing,
+    setFixedPricing,
+    getPricingInfo,
+    calculateOrderTotalPrice
+)
+from admin_system import isAdmin, validateAdminCommand
+from lock_system import acquireLock, releaseLock, isLocked
+from advanced_logger import (
+    logBalanceOperation,
+    logOrderOperation,
+    logPricingOperation,
+    logAdminOperation,
+    logErrorWithDetails
+)
 
 # إنشاء كائن API
 smm_api = SMM_API()
 
 # قاموس لتخزين حالة المستخدمين والبيانات المؤقتة
-# Dictionary to store user states and temporary data
 user_states = {}
 
 
@@ -45,6 +71,7 @@ def handle_update(update):
         
     except Exception as e:
         log_error(f"❌ خطأ في handle_update: {str(e)}")
+        logErrorWithDetails("handle_update_error", str(e))
 
 
 def handle_message(message):
@@ -59,35 +86,66 @@ def handle_message(message):
         text = message.get('text', '').strip()
         user_id = message.get('from', {}).get('id')
         
-        if not chat_id:
+        if not chat_id or not user_id:
             return
         
         # التحقق من حالة المستخدم
         user_state = user_states.get(user_id, {})
+        state = user_state.get('state')
         
-        if user_state.get('state') == STATE_WAITING_LINK:
-            # المستخدم يرسل الرابط
+        # معالجة حالات الانتظار المختلفة
+        if state == STATE_WAITING_LINK:
             handle_link_input(chat_id, user_id, text)
         
-        elif user_state.get('state') == STATE_WAITING_QUANTITY:
-            # المستخدم يرسل الكمية
+        elif state == STATE_WAITING_QUANTITY:
             handle_quantity_input(chat_id, user_id, text)
         
+        elif state == STATE_WAITING_ADMIN_USER_ID:
+            handle_admin_user_id_input(chat_id, user_id, text)
+        
+        elif state == STATE_WAITING_ADMIN_ADD_BALANCE:
+            handle_admin_add_balance_input(chat_id, user_id, text)
+        
+        elif state == STATE_WAITING_ADMIN_REMOVE_BALANCE:
+            handle_admin_remove_balance_input(chat_id, user_id, text)
+        
+        # معالجة الأوامر
         elif text == '/start':
-            # أمر البدء
             handle_start_command(chat_id, user_id)
         
-        elif text == 'رصيد':
-            # طلب الرصيد
+        elif text == '/balance' or text == '💰 رصيدي':
             handle_balance(chat_id, user_id)
         
-        elif text == 'خدمات':
-            # طلب قائمة الخدمات
+        elif text == '/services' or text == '🛒 الخدمات':
             handle_services(chat_id, user_id)
         
-        elif text == 'طلب جديد':
-            # طلب جديد
+        elif text == '/neworder' or text == '🛒 طلب جديد':
             handle_new_order(chat_id, user_id)
+        
+        elif text == '📞 التواصل مع الادمن':
+            handle_contact_admin(chat_id, user_id)
+        
+        elif text == '💳 الدفع / الاشتراك':
+            handle_payment_info(chat_id, user_id)
+        
+        elif text == '🔄 تحديث':
+            handle_refresh(chat_id, user_id)
+        
+        # أوامر الأدمن
+        elif text.startswith('/addbalance'):
+            handle_admin_add_balance_command(chat_id, user_id, text)
+        
+        elif text.startswith('/removebalance'):
+            handle_admin_remove_balance_command(chat_id, user_id, text)
+        
+        elif text.startswith('/setpercent'):
+            handle_admin_set_percent(chat_id, user_id, text)
+        
+        elif text.startswith('/setprice'):
+            handle_admin_set_fixed_price(chat_id, user_id, text)
+        
+        elif text == '/price':
+            handle_admin_show_pricing(chat_id, user_id)
         
         else:
             # رسالة عادية غير معروفة
@@ -95,11 +153,14 @@ def handle_message(message):
                 chat_id,
                 "👋 مرحباً! استخدم الأزرار في الأسفل للتعامل مع البوت.\n\n"
                 "يمكنك استخدام:\n"
-                "• /start - لإعادة تشغيل البوت"
+                "• /start - لإعادة تشغيل البوت\n"
+                "• /balance - لعرض رصيدك\n"
+                "• /services - لعرض الخدمات"
             )
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_message: {str(e)}")
+        logErrorWithDetails("handle_message_error", str(e), user_id)
 
 
 def handle_callback_query(callback_query):
@@ -120,6 +181,11 @@ def handle_callback_query(callback_query):
             answer_callback_query(callback_query_id)
             return
         
+        # التحقق من القفل
+        if isLocked(user_id, USER_LOCK_TIMEOUT):
+            answer_callback_query(callback_query_id, text="⏳ يرجى الانتظار، جاري معالجة طلب سابق...", show_alert=True)
+            return
+        
         # الرد على الاستفسار أولاً
         answer_callback_query(callback_query_id)
         
@@ -127,75 +193,85 @@ def handle_callback_query(callback_query):
         
         # معالجة البيانات المختلفة
         if data == 'balance':
-            # طلب الرصيد
             handle_balance(chat_id, user_id)
         
         elif data == 'services':
-            # طلب قائمة الخدمات
             handle_services(chat_id, user_id)
         
         elif data == 'new_order':
-            # طلب جديد
             handle_new_order(chat_id, user_id)
+        
+        elif data == 'contact_admin':
+            handle_contact_admin(chat_id, user_id)
+        
+        elif data == 'payment_info':
+            handle_payment_info(chat_id, user_id)
+        
+        elif data == 'refresh':
+            handle_refresh(chat_id, user_id)
         
         elif data.startswith('service_'):
             # اختيار خدمة
             service_id = data.replace('service_', '')
             handle_service_selection(chat_id, user_id, service_id)
         
+        elif data.startswith('page_'):
+            # تصفح صفحات الخدمات
+            page_number = int(data.replace('page_', ''))
+            handle_services_pagination(chat_id, user_id, page_number)
+        
         elif data == 'confirm_order':
-            # تأكيد الطلب
             handle_order_confirmation(chat_id, user_id)
         
         elif data == 'cancel_order':
-            # إلغاء الطلب
             handle_order_cancel(chat_id, user_id)
         
         elif data == 'back':
-            # زر العودة - إعادة عرض القائمة الرئيسية
             handle_start_command(chat_id, user_id)
         
+        elif data.startswith('status_'):
+            order_id = data.replace('status_', '')
+            handle_order_status(chat_id, user_id, order_id)
+        
         else:
-            log_error(f"⚠️  callback_data غير معروف: {data}")
+            log_error(f"⚠️ callback_data غير معروف: {data}")
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_callback_query: {str(e)}")
+        logErrorWithDetails("handle_callback_error", str(e), user_id)
 
 
 def handle_start_command(chat_id, user_id):
     """
     معالجة أمر /start
     Handle /start command
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
         # مسح حالة المستخدم إذا وجدت
         if user_id in user_states:
             del user_states[user_id]
         
+        # تحرير القفل
+        releaseLock(user_id)
+        
         # رسالة الترحيب
         welcome_text = (
-            "👋 <b>أهلاً بك في بوت SMM!</b>\n\n"
+            "👋 <b>أهلاً بك في بوت SMM المتقدم!</b>\n\n"
             "يمكنك من خلال هذا البوت:\n"
             "• التحقق من رصيدك\n"
             "• عرض الخدمات المتاحة\n"
-            "• تقديم طلبات جديدة\n\n"
+            "• تقديم طلبات جديدة\n"
+            "• التواصل مع الأدمن\n"
+            "• معرفة طرق الدفع\n\n"
             "اختر من القائمة في الأسفل 👇"
         )
         
         # بناء الأزرار الرئيسية
-        buttons = [
-            {'text': '💰 رصيد', 'callback_data': 'balance'},
-            {'text': '📦 خدمات', 'callback_data': 'services'},
-            {'text': '🛒 طلب جديد', 'callback_data': 'new_order'}
-        ]
-        
-        # تنظيم الأزرار في صفوف
         keyboard = [
-            [buttons[0], buttons[1]],  # صف أول: رصيد وخدمات
-            [buttons[2]]  # صف ثاني: طلب جديد
+            [{'text': '💰 رصيدي', 'callback_data': 'balance'}, {'text': '🛒 الخدمات', 'callback_data': 'services'}],
+            [{'text': '🛒 طلب جديد', 'callback_data': 'new_order'}],
+            [{'text': '📞 التواصل مع الادمن', 'callback_data': 'contact_admin'}, {'text': '💳 الدفع / الاشتراك', 'callback_data': 'payment_info'}],
+            [{'text': '🔄 تحديث', 'callback_data': 'refresh'}]
         ]
         
         reply_markup = build_inline_keyboard(keyboard)
@@ -206,27 +282,25 @@ def handle_start_command(chat_id, user_id):
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_start_command: {str(e)}")
+        logErrorWithDetails("start_command_error", str(e), user_id)
 
 
 def handle_balance(chat_id, user_id):
     """
     معالجة طلب الرصيد
     Handle balance request
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
-        # جلب الرصيد من API
-        balance = smm_api.balance()
+        # جلب رصيد المستخدم من النظام المحلي
+        balance = getBalance(user_id)
         
-        if balance is not None:
-            text = f"💰 <b>رصيدك الحالي:</b>\n\n${balance:.4f}"
-        else:
-            text = "❌ حدث خطأ أثناء جلب الرصيد.\n\nيرجى المحاولة لاحقاً."
+        text = f"💰 <b>رصيدك الحالي:</b>\n\n💵 {balance:.6f}$"
         
-        # زر العودة
-        keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
+        # زر العودة والتحديث
+        keyboard = [
+            [{'text': '🔄 تحديث', 'callback_data': 'refresh'}],
+            [{'text': '🔙 عودة للقائمة الرئيسية', 'callback_data': 'back'}]
+        ]
         reply_markup = build_inline_keyboard(keyboard)
         
         send_message(chat_id, text, reply_markup)
@@ -234,15 +308,13 @@ def handle_balance(chat_id, user_id):
     except Exception as e:
         log_error(f"❌ خطأ في handle_balance: {str(e)}")
         send_message(chat_id, "❌ حدث خطأ غير متوقع.")
+        logErrorWithDetails("balance_error", str(e), user_id)
 
 
-def handle_services(chat_id, user_id):
+def handle_services(chat_id, user_id, page=0):
     """
     معالجة طلب قائمة الخدمات
     Handle services list request
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
         # جلب الخدمات من API
@@ -252,34 +324,51 @@ def handle_services(chat_id, user_id):
             send_message(chat_id, "❌ لا توجد خدمات متاحة حالياً.")
             return
         
-        # عرض أول 5 خدمات فقط
-        display_services = services[:5]
+        # عدد الخدمات في كل صفحة
+        services_per_page = 10
+        total_pages = (len(services) + services_per_page - 1) // services_per_page
         
-        text = "<b>📦 الخدمات المتاحة:</b>\n\n"
+        # تحديد الخدمات للصفحة الحالية
+        start_idx = page * services_per_page
+        end_idx = min(start_idx + services_per_page, len(services))
+        page_services = services[start_idx:end_idx]
         
-        for idx, service in enumerate(display_services, 1):
+        text = f"<b>📦 الخدمات المتاحة (صفحة {page + 1}/{total_pages}):</b>\n\n"
+        
+        for idx, service in enumerate(page_services, start_idx + 1):
             name = service.get('name', 'خدمة غير معروفة')
-            price = service.get('rate', 0)
+            base_rate = float(service.get('rate', 0))
             service_id = service.get('service', 0)
             
-            text += f"{idx}. <b>{name}</b>\n"
-            text += f"   السعر: ${price} لكل 1000\n"
-            text += f"   المعرف: {service_id}\n\n"
-        
-        if len(services) > 5:
-            text += f"... وهناك {len(services) - 5} خدمات أخرى"
+            # حساب السعر بعد تطبيق التسعير
+            final_rate = calculatePrice(base_rate)
+            
+            text += f"{idx}. <b>{name[:50]}</b>\n"
+            text += f"   السعر الأصلي: ${base_rate:.6f} لكل 1000\n"
+            text += f"   السعر النهائي: ${final_rate:.6f} لكل 1000\n"
+            text += f"   المعرف: <code>{service_id}</code>\n\n"
         
         # أزرار الخدمات
         buttons = []
-        for service in display_services:
+        for service in page_services:
             service_id = service.get('service', 0)
-            name = service.get('name', 'خدمة')[:30]  # تقصير الاسم
+            name = service.get('name', 'خدمة')[:40]
             buttons.append([
                 {'text': f'📍 {name}', 'callback_data': f'service_{service_id}'}
             ])
         
+        # أزرار التنقل بين الصفحات
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append({'text': '⬅️ السابق', 'callback_data': f'page_{page-1}'})
+        if page < total_pages - 1:
+            nav_buttons.append({'text': 'التالي ➡️', 'callback_data': f'page_{page+1}'})
+        
+        if nav_buttons:
+            buttons.append(nav_buttons)
+        
         # زر العودة
-        buttons.append([{'text': '🔙 عودة', 'callback_data': 'back'}])
+        buttons.append([{'text': '🔙 عودة للقائمة الرئيسية', 'callback_data': 'back'}])
         
         reply_markup = build_inline_keyboard(buttons)
         
@@ -288,17 +377,31 @@ def handle_services(chat_id, user_id):
     except Exception as e:
         log_error(f"❌ خطأ في handle_services: {str(e)}")
         send_message(chat_id, "❌ حدث خطأ أثناء جلب الخدمات.")
+        logErrorWithDetails("services_error", str(e), user_id)
+
+
+def handle_services_pagination(chat_id, user_id, page_number):
+    """
+    معالجة تصفح صفحات الخدمات
+    Handle services pagination
+    """
+    try:
+        handle_services(chat_id, user_id, page_number)
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_services_pagination: {str(e)}")
 
 
 def handle_new_order(chat_id, user_id):
     """
     بدء عملية طلب جديد
     Start new order process
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
+        # التحقق من القفل
+        if isLocked(user_id, USER_LOCK_TIMEOUT):
+            send_message(chat_id, "⏳ لديك طلب قيد المعالجة. يرجى الانتظار.")
+            return
+        
         # جلب الخدمات
         services = smm_api.services()
         
@@ -327,18 +430,20 @@ def handle_new_order(chat_id, user_id):
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_new_order: {str(e)}")
+        logErrorWithDetails("new_order_error", str(e), user_id)
 
 
 def handle_service_selection(chat_id, user_id, service_id):
     """
     معالجة اختيار خدمة
     Handle service selection
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
-    @param service_id: معرف الخدمة المختارة
     """
     try:
+        # الحصول على قفل
+        if not acquireLock(user_id, USER_LOCK_TIMEOUT):
+            send_message(chat_id, "⏳ لديك طلب قيد المعالجة. يرجى الانتظار.")
+            return
+        
         # حفظ حالة المستخدم
         user_states[user_id] = {
             'state': STATE_WAITING_LINK,
@@ -354,16 +459,14 @@ def handle_service_selection(chat_id, user_id, service_id):
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_service_selection: {str(e)}")
+        releaseLock(user_id)
+        logErrorWithDetails("service_selection_error", str(e), user_id)
 
 
 def handle_link_input(chat_id, user_id, link):
     """
     معالجة إدخال الرابط
     Handle link input
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
-    @param link: الرابط المرسل
     """
     try:
         # التحقق من صحة الرابط
@@ -388,16 +491,14 @@ def handle_link_input(chat_id, user_id, link):
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_link_input: {str(e)}")
+        releaseLock(user_id)
+        logErrorWithDetails("link_input_error", str(e), user_id)
 
 
 def handle_quantity_input(chat_id, user_id, quantity_text):
     """
     معالجة إدخال الكمية
     Handle quantity input
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
-    @param quantity_text: الكمية المرسلة كنص
     """
     try:
         # التحقق من أن الكمية رقم صحيح
@@ -422,12 +523,30 @@ def handle_quantity_input(chat_id, user_id, quantity_text):
         service_id = user_states[user_id].get('service_id')
         link = user_states[user_id].get('link')
         
+        # جلب تفاصيل الخدمة من API
+        services = smm_api.services()
+        service_info = None
+        for service in services:
+            if str(service.get('service')) == str(service_id):
+                service_info = service
+                break
+        
+        if not service_info:
+            send_message(chat_id, "❌ خطأ: لم يتم العثور على معلومات الخدمة.")
+            releaseLock(user_id)
+            return
+        
+        base_rate = float(service_info.get('rate', 0))
+        price_info = calculateOrderTotalPrice(base_rate, quantity)
+        
         # عرض ملخص الطلب للتأكيد
         summary_text = (
             "<b>📋 ملخص طلبك:</b>\n\n"
             f"🔖 الخدمة: {service_id}\n"
             f"🔗 الرابط: {link}\n"
-            f"🔢 الكمية: {quantity}\n\n"
+            f"🔢 الكمية: {quantity}\n"
+            f"💰 السعر الأصلي: ${price_info['original_price']:.6f}\n"
+            f"💵 السعر النهائي: ${price_info['final_price']:.6f}\n\n"
             "هل تريد تأكيد الطلب؟"
         )
         
@@ -445,15 +564,14 @@ def handle_quantity_input(chat_id, user_id, quantity_text):
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_quantity_input: {str(e)}")
+        releaseLock(user_id)
+        logErrorWithDetails("quantity_input_error", str(e), user_id)
 
 
 def handle_order_confirmation(chat_id, user_id):
     """
     معالجة تأكيد الطلب
     Handle order confirmation
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
         # الحصول على بيانات الطلب
@@ -465,7 +583,51 @@ def handle_order_confirmation(chat_id, user_id):
         
         if not all([service_id, link, quantity]):
             send_message(chat_id, "❌ بيانات الطلب غير مكتممة.")
+            releaseLock(user_id)
             return
+        
+        # جلب تفاصيل الخدمة
+        services = smm_api.services()
+        service_info = None
+        for service in services:
+            if str(service.get('service')) == str(service_id):
+                service_info = service
+                break
+        
+        if not service_info:
+            send_message(chat_id, "❌ خطأ: لم يتم العثور على معلومات الخدمة.")
+            releaseLock(user_id)
+            return
+        
+        base_rate = float(service_info.get('rate', 0))
+        price_info = calculateOrderTotalPrice(base_rate, quantity)
+        final_price = price_info['final_price']
+        
+        # التحقق من رصيد المستخدم
+        current_balance = getBalance(user_id)
+        if current_balance < final_price:
+            send_message(
+                chat_id,
+                f"❌ <b>رصيدك غير كافٍ!</b>\n\n"
+                f"💰 رصيدك الحالي: {current_balance:.6f}$\n"
+                f"💵 المطلوب: {final_price:.6f}$\n"
+                f"📉 العجز: {final_price - current_balance:.6f}$\n\n"
+                "يرجى شحن رصيدك أولاً."
+            )
+            releaseLock(user_id)
+            return
+        
+        # خصم الرصيد
+        balance_before = current_balance
+        if not deductBalance(user_id, final_price):
+            send_message(chat_id, "❌ فشل في خصم الرصيد. يرجى المحاولة لاحقاً.")
+            releaseLock(user_id)
+            return
+        
+        balance_after = getBalance(user_id)
+        
+        # تسجيل عملية الرصيد
+        logBalanceOperation(user_id, "deduct", final_price, balance_before, balance_after)
         
         # تقديم الطلب عبر API
         order_id = smm_api.order(service_id, link, quantity)
@@ -475,7 +637,9 @@ def handle_order_confirmation(chat_id, user_id):
                 f"✅ <b>تم تقديم طلبك بنجاح!</b>\n\n"
                 f"🔢 معرف الطلب: {order_id}\n"
                 f"🔖 الخدمة: {service_id}\n"
-                f"🔢 الكمية: {quantity}\n\n"
+                f"🔢 الكمية: {quantity}\n"
+                f"💵 المبلغ المخصوم: {final_price:.6f}$\n"
+                f"💰 رصيدك الجديد: {balance_after:.6f}$\n\n"
                 "يمكنك التحقق من حالة الطلب لاحقاً."
             )
             
@@ -485,43 +649,577 @@ def handle_order_confirmation(chat_id, user_id):
             
             send_message(chat_id, text, reply_markup)
             
+            # تسجيل عملية الطلب
+            logOrderOperation(user_id, order_id, service_id, quantity, final_price, "success")
+            
             log_error(f"✅ تم تقديم طلب ناجح للمستخدم {user_id} - Order ID: {order_id}")
         
         else:
+            # استرجاع الرصيد إذا فشل الطلب
+            addBalance(user_id, final_price)
+            balance_after_refund = getBalance(user_id)
+            
+            logBalanceOperation(user_id, "refund", final_price, balance_after, balance_after_refund)
+            
             send_message(
                 chat_id,
                 "❌ فشل تقديم الطلب.\n\n"
+                "تم استرجاع المبلغ إلى رصيدك تلقائياً.\n"
                 "يرجى المحاولة لاحقاً أو التواصل مع الدعم."
             )
+            
+            # تسجيل عملية الطلب الفاشل
+            logOrderOperation(user_id, "failed", service_id, quantity, final_price, "failed")
         
-        # مسح حالة المستخدم
+        # مسح حالة المستخدم وتحرير القفل
         if user_id in user_states:
             del user_states[user_id]
+        releaseLock(user_id)
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_order_confirmation: {str(e)}")
+        releaseLock(user_id)
         send_message(chat_id, "❌ حدث خطأ أثناء معالجة الطلب.")
+        logErrorWithDetails("order_confirmation_error", str(e), user_id)
 
 
 def handle_order_cancel(chat_id, user_id):
     """
     معالجة إلغاء الطلب
     Handle order cancellation
-    
-    @param chat_id: معرف المحادثة
-    @param user_id: معرف المستخدم
     """
     try:
         # مسح حالة المستخدم
         if user_id in user_states:
             del user_states[user_id]
         
+        # تحرير القفل
+        releaseLock(user_id)
+        
         text = "❌ <b>تم إلغاء العملية.</b>\n\nيمكنك استخدام /start للبدء من جديد."
         send_message(chat_id, text)
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_order_cancel: {str(e)}")
+        releaseLock(user_id)
 
 
-# ⚠️ يمكن إضافة معالجات أخرى حسب الحاجة
-# ⚠️ You can add more handlers as needed
+def handle_order_status(chat_id, user_id, order_id):
+    """
+    معالجة طلب حالة الطلب
+    Handle order status request
+    """
+    try:
+        status = smm_api.status(order_id)
+        
+        if status:
+            text = f"<b>📊 حالة الطلب #{order_id}:</b>\n\n"
+            
+            if 'status' in status:
+                text += f"📌 الحالة: {status['status']}\n"
+            if 'remains' in status:
+                text += f"🔢 المتبقي: {status['remains']}\n"
+            if 'charge' in status:
+                text += f"💰 التكلفة: ${status['charge']}\n"
+            
+            # زر العودة
+            keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(chat_id, text, reply_markup)
+        else:
+            send_message(chat_id, "❌ لم يتم العثور على معلومات الطلب.")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_order_status: {str(e)}")
+        send_message(chat_id, "❌ حدث خطأ أثناء جلب حالة الطلب.")
+        logErrorWithDetails("order_status_error", str(e), user_id, f"order_id:{order_id}")
+
+
+def handle_contact_admin(chat_id, user_id):
+    """
+    معالجة طلب التواصل مع الأدمن
+    Handle contact admin request
+    """
+    try:
+        text = (
+            "📞 <b>للتواصل مع الأدمن:</b>\n\n"
+            "📱 Telegram: @YourAdminUsername\n"
+            "📧 Email: admin@example.com\n\n"
+            "⏰ أوقات العمل: 24/7\n"
+            "💬 نحن هنا لمساعدتك!"
+        )
+        
+        keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, text, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_contact_admin: {str(e)}")
+        logErrorWithDetails("contact_admin_error", str(e), user_id)
+
+
+def handle_payment_info(chat_id, user_id):
+    """
+    معالجة طلب معلومات الدفع
+    Handle payment info request
+    """
+    try:
+        text = (
+            "💳 <b>طرق الدفع المتاحة:</b>\n\n"
+            "🏦 <b>التحويل البنكي:</b>\n"
+            "Bank: Example Bank\n"
+            "Account: 1234567890\n\n"
+            "💰 <b>PayPal:</b>\n"
+            "Email: paypal@example.com\n\n"
+            "📱 <b>وسائل دفع أخرى:</b>\n"
+            "يرجى التواصل مع الأدمن للمزيد من المعلومات\n\n"
+            "⚠️ بعد الدفع، أرسل إثبات الدفع للأدمن ليتم شحن رصيدك."
+        )
+        
+        keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, text, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_payment_info: {str(e)}")
+        logErrorWithDetails("payment_info_error", str(e), user_id)
+
+
+def handle_refresh(chat_id, user_id):
+    """
+    معالجة زر التحديث/إعادة التعبئة
+    Handle refresh button
+    """
+    try:
+        # تحديث رصيد المستخدم
+        balance = getBalance(user_id)
+        
+        text = f"✅ <b>تم تحديث بياناتك بنجاح!</b>\n\n💰 رصيدك الحالي: {balance:.6f}$"
+        
+        # الأزرار الرئيسية
+        keyboard = [
+            [{'text': '💰 رصيدي', 'callback_data': 'balance'}, {'text': '🛒 الخدمات', 'callback_data': 'services'}],
+            [{'text': '🛒 طلب جديد', 'callback_data': 'new_order'}],
+            [{'text': '📞 التواصل مع الادمن', 'callback_data': 'contact_admin'}, {'text': '💳 الدفع / الاشتراك', 'callback_data': 'payment_info'}],
+            [{'text': '🔄 تحديث', 'callback_data': 'refresh'}]
+        ]
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"🔄 تم تحديث بيانات المستخدم {user_id}")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_refresh: {str(e)}")
+        logErrorWithDetails("refresh_error", str(e), user_id)
+
+
+# ========== أوامر الأدمن ==========
+
+
+def handle_admin_add_balance_command(chat_id, user_id, text):
+    """
+    معالجة أمر إضافة الرصيد (أدمن فقط)
+    Handle admin add balance command
+    """
+    try:
+        if not validateAdminCommand(user_id, "/addbalance"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذا الأمر.")
+            return
+        
+        # تحليل الأمر
+        parts = text.split()
+        
+        if len(parts) == 3:
+            # /addbalance USER_ID AMOUNT
+            try:
+                target_user_id = int(parts[1])
+                amount = float(parts[2])
+                
+                if amount <= 0:
+                    send_message(chat_id, "❌ المبلغ يجب أن يكون موجباً.")
+                    return
+                
+                # إضافة الرصيد
+                balance_before = getBalance(target_user_id)
+                if addBalance(target_user_id, amount):
+                    balance_after = getBalance(target_user_id)
+                    
+                    # تسجيل العملية
+                    logBalanceOperation(target_user_id, "add_by_admin", amount, balance_before, balance_after)
+                    logAdminOperation(user_id, "/addbalance", target_user_id, f"Amount:{amount}$")
+                    
+                    send_message(
+                        chat_id,
+                        f"✅ <b>تم إضافة الرصيد بنجاح!</b>\n\n"
+                        f"👤 المستخدم: {target_user_id}\n"
+                        f"💰 المبلغ: {amount}$\n"
+                        f"📊 الرصيد قبل: {balance_before:.6f}$\n"
+                        f"💵 الرصيد بعد: {balance_after:.6f}$"
+                    )
+                else:
+                    send_message(chat_id, "❌ فشل في إضافة الرصيد.")
+            
+            except ValueError:
+                send_message(chat_id, "❌ بيانات غير صالحة.\n\nالاستخدام: /addbalance USER_ID AMOUNT")
+        
+        elif len(parts) == 2:
+            # بدء عملية إضافة الرصيد خطوة بخطوة
+            try:
+                target_user_id = int(parts[1])
+                
+                # حفظ حالة الأدمن
+                user_states[user_id] = {
+                    'state': STATE_WAITING_ADMIN_ADD_BALANCE,
+                    'target_user_id': target_user_id
+                }
+                
+                send_message(
+                    chat_id,
+                    f"💰 <b>إضافة رصيد للمستخدم {target_user_id}</b>\n\n"
+                    f"الآن أرسل المبلغ الذي تريد إضافته:"
+                )
+            
+            except ValueError:
+                send_message(chat_id, "❌ معرف المستخدم غير صالح.\n\nالاستخدام: /addbalance USER_ID")
+        
+        else:
+            send_message(
+                chat_id,
+                "📝 <b>إضافة رصيد لمستخدم:</b>\n\n"
+                "الاستخدام:\n"
+                "<code>/addbalance USER_ID AMOUNT</code>\n\n"
+                "أو:\n"
+                "<code>/addbalance USER_ID</code> (ثم إرسال المبلغ)"
+            )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_add_balance_command: {str(e)}")
+        logErrorWithDetails("admin_add_balance_error", str(e), user_id)
+
+
+def handle_admin_add_balance_input(chat_id, user_id, text):
+    """
+    معالجة إدخال مبلغ إضافة الرصيد (أدمن)
+    Handle admin add balance amount input
+    """
+    try:
+        user_state = user_states.get(user_id, {})
+        target_user_id = user_state.get('target_user_id')
+        
+        if not target_user_id:
+            send_message(chat_id, "❌ خطأ: لم يتم تحديد المستخدم.")
+            if user_id in user_states:
+                del user_states[user_id]
+            return
+        
+        try:
+            amount = float(text)
+            
+            if amount <= 0:
+                send_message(chat_id, "❌ المبلغ يجب أن يكون موجباً.\n\nالرجاء إرسال مبلغ صحيح:")
+                return
+            
+            # إضافة الرصيد
+            balance_before = getBalance(target_user_id)
+            if addBalance(target_user_id, amount):
+                balance_after = getBalance(target_user_id)
+                
+                # تسجيل العملية
+                logBalanceOperation(target_user_id, "add_by_admin", amount, balance_before, balance_after)
+                logAdminOperation(user_id, "/addbalance", target_user_id, f"Amount:{amount}$")
+                
+                send_message(
+                    chat_id,
+                    f"✅ <b>تم إضافة الرصيد بنجاح!</b>\n\n"
+                    f"👤 المستخدم: {target_user_id}\n"
+                    f"💰 المبلغ: {amount}$\n"
+                    f"📊 الرصيد قبل: {balance_before:.6f}$\n"
+                    f"💵 الرصيد بعد: {balance_after:.6f}$"
+                )
+            else:
+                send_message(chat_id, "❌ فشل في إضافة الرصيد.")
+        
+        except ValueError:
+            send_message(chat_id, "❌ مبلغ غير صالح.\n\nالرجاء إرسال رقم صحيح:")
+            return
+        
+        # مسح الحالة
+        if user_id in user_states:
+            del user_states[user_id]
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_add_balance_input: {str(e)}")
+        logErrorWithDetails("admin_add_balance_input_error", str(e), user_id)
+
+
+def handle_admin_remove_balance_command(chat_id, user_id, text):
+    """
+    معالجة أمر خصم الرصيد (أدمن فقط)
+    Handle admin remove balance command
+    """
+    try:
+        if not validateAdminCommand(user_id, "/removebalance"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذا الأمر.")
+            return
+        
+        # تحليل الأمر
+        parts = text.split()
+        
+        if len(parts) == 3:
+            # /removebalance USER_ID AMOUNT
+            try:
+                target_user_id = int(parts[1])
+                amount = float(parts[2])
+                
+                if amount <= 0:
+                    send_message(chat_id, "❌ المبلغ يجب أن يكون موجباً.")
+                    return
+                
+                # خصم الرصيد
+                balance_before = getBalance(target_user_id)
+                if deductBalance(target_user_id, amount):
+                    balance_after = getBalance(target_user_id)
+                    
+                    # تسجيل العملية
+                    logBalanceOperation(target_user_id, "remove_by_admin", amount, balance_before, balance_after)
+                    logAdminOperation(user_id, "/removebalance", target_user_id, f"Amount:{amount}$")
+                    
+                    send_message(
+                        chat_id,
+                        f"✅ <b>تم خصم الرصيد بنجاح!</b>\n\n"
+                        f"👤 المستخدم: {target_user_id}\n"
+                        f"💰 المبلغ: {amount}$\n"
+                        f"📊 الرصيد قبل: {balance_before:.6f}$\n"
+                        f"💵 الرصيد بعد: {balance_after:.6f}$"
+                    )
+                else:
+                    send_message(chat_id, "❌ فشل في خصم الرصيد (رصيد غير كافٍ).")
+            
+            except ValueError:
+                send_message(chat_id, "❌ بيانات غير صالحة.\n\nالاستخدام: /removebalance USER_ID AMOUNT")
+        
+        elif len(parts) == 2:
+            # بدء عملية خصم الرصيد خطوة بخطوة
+            try:
+                target_user_id = int(parts[1])
+                
+                # حفظ حالة الأدمن
+                user_states[user_id] = {
+                    'state': STATE_WAITING_ADMIN_REMOVE_BALANCE,
+                    'target_user_id': target_user_id
+                }
+                
+                send_message(
+                    chat_id,
+                    f"💸 <b>خصم رصيد من المستخدم {target_user_id}</b>\n\n"
+                    f"الآن أرسل المبلغ الذي تريد خصمه:"
+                )
+            
+            except ValueError:
+                send_message(chat_id, "❌ معرف المستخدم غير صالح.\n\nالاستخدام: /removebalance USER_ID")
+        
+        else:
+            send_message(
+                chat_id,
+                "📝 <b>خصم رصيد من مستخدم:</b>\n\n"
+                "الاستخدام:\n"
+                "<code>/removebalance USER_ID AMOUNT</code>\n\n"
+                "أو:\n"
+                "<code>/removebalance USER_ID</code> (ثم إرسال المبلغ)"
+            )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_remove_balance_command: {str(e)}")
+        logErrorWithDetails("admin_remove_balance_error", str(e), user_id)
+
+
+def handle_admin_remove_balance_input(chat_id, user_id, text):
+    """
+    معالجة إدخال مبلغ خصم الرصيد (أدمن)
+    Handle admin remove balance amount input
+    """
+    try:
+        user_state = user_states.get(user_id, {})
+        target_user_id = user_state.get('target_user_id')
+        
+        if not target_user_id:
+            send_message(chat_id, "❌ خطأ: لم يتم تحديد المستخدم.")
+            if user_id in user_states:
+                del user_states[user_id]
+            return
+        
+        try:
+            amount = float(text)
+            
+            if amount <= 0:
+                send_message(chat_id, "❌ المبلغ يجب أن يكون موجباً.\n\nالرجاء إرسال مبلغ صحيح:")
+                return
+            
+            # خصم الرصيد
+            balance_before = getBalance(target_user_id)
+            if deductBalance(target_user_id, amount):
+                balance_after = getBalance(target_user_id)
+                
+                # تسجيل العملية
+                logBalanceOperation(target_user_id, "remove_by_admin", amount, balance_before, balance_after)
+                logAdminOperation(user_id, "/removebalance", target_user_id, f"Amount:{amount}$")
+                
+                send_message(
+                    chat_id,
+                    f"✅ <b>تم خصم الرصيد بنجاح!</b>\n\n"
+                    f"👤 المستخدم: {target_user_id}\n"
+                    f"💰 المبلغ: {amount}$\n"
+                    f"📊 الرصيد قبل: {balance_before:.6f}$\n"
+                    f"💵 الرصيد بعد: {balance_after:.6f}$"
+                )
+            else:
+                send_message(chat_id, "❌ فشل في خصم الرصيد (رصيد غير كافٍ).")
+        
+        except ValueError:
+            send_message(chat_id, "❌ مبلغ غير صالح.\n\nالرجاء إرسال رقم صحيح:")
+            return
+        
+        # مسح الحالة
+        if user_id in user_states:
+            del user_states[user_id]
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_remove_balance_input: {str(e)}")
+        logErrorWithDetails("admin_remove_balance_input_error", str(e), user_id)
+
+
+def handle_admin_set_percent(chat_id, user_id, text):
+    """
+    معالجة أمر تعيين التسعير النسبي (أدمن فقط)
+    Handle admin set percent pricing command
+    """
+    try:
+        if not validateAdminCommand(user_id, "/setpercent"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذا الأمر.")
+            return
+        
+        parts = text.split()
+        
+        if len(parts) != 2:
+            send_message(chat_id, "❌ الاستخدام: /setpercent VALUE\n\nمثال: /setpercent 50")
+            return
+        
+        try:
+            percent_value = float(parts[1])
+            
+            if percent_value < 0:
+                send_message(chat_id, "❌ النسبة يجب أن تكون موجبة أو صفر.")
+                return
+            
+            if setPercentPricing(percent_value):
+                # تسجيل العملية
+                logPricingOperation(user_id, "percent", percent_value)
+                logAdminOperation(user_id, "/setpercent", details=f"Percent:{percent_value}%")
+                
+                send_message(
+                    chat_id,
+                    f"✅ <b>تم تعيين التسعير بنجاح!</b>\n\n"
+                    f"📊 النوع: نسبة مئوية\n"
+                    f"📌 القيمة: {percent_value}%\n\n"
+                    f"💡 سيتم إضافة {percent_value}% على السعر الأصلي"
+                )
+            else:
+                send_message(chat_id, "❌ فشل في تعيين التسعير.")
+        
+        except ValueError:
+            send_message(chat_id, "❌ قيمة غير صالحة.\n\nالاستخدام: /setpercent VALUE")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_set_percent: {str(e)}")
+        logErrorWithDetails("admin_set_percent_error", str(e), user_id)
+
+
+def handle_admin_set_fixed_price(chat_id, user_id, text):
+    """
+    معالجة أمر تعيين التسعير الثابت (أدمن فقط)
+    Handle admin set fixed pricing command
+    """
+    try:
+        if not validateAdminCommand(user_id, "/setprice"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذا الأمر.")
+            return
+        
+        parts = text.split()
+        
+        if len(parts) != 2:
+            send_message(chat_id, "❌ الاستخدام: /setprice VALUE\n\nمثال: /setprice 5")
+            return
+        
+        try:
+            fixed_value = float(parts[1])
+            
+            if fixed_value < 0:
+                send_message(chat_id, "❌ المبلغ يجب أن يكون موجب أو صفر.")
+                return
+            
+            if setFixedPricing(fixed_value):
+                # تسجيل العملية
+                logPricingOperation(user_id, "fixed", fixed_value)
+                logAdminOperation(user_id, "/setprice", details=f"Fixed:{fixed_value}$")
+                
+                send_message(
+                    chat_id,
+                    f"✅ <b>تم تعيين التسعير بنجاح!</b>\n\n"
+                    f"📊 النوع: مبلغ ثابت\n"
+                    f"📌 القيمة: {fixed_value}$\n\n"
+                    f"💡 سيتم إضافة {fixed_value}$ على السعر الأصلي"
+                )
+            else:
+                send_message(chat_id, "❌ فشل في تعيين التسعير.")
+        
+        except ValueError:
+            send_message(chat_id, "❌ قيمة غير صالحة.\n\nالاستخدام: /setprice VALUE")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_set_fixed_price: {str(e)}")
+        logErrorWithDetails("admin_set_fixed_error", str(e), user_id)
+
+
+def handle_admin_show_pricing(chat_id, user_id):
+    """
+    معالجة أمر عرض التسعير الحالي (أدمن فقط)
+    Handle admin show pricing command
+    """
+    try:
+        if not validateAdminCommand(user_id, "/price"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذا الأمر.")
+            return
+        
+        pricing_info = getPricingInfo()
+        
+        # زر العودة
+        keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, pricing_info, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_show_pricing: {str(e)}")
+        logErrorWithDetails("admin_show_pricing_error", str(e), user_id)
+
+
+def handle_admin_user_id_input(chat_id, user_id, text):
+    """
+    معالجة إدخال معرف المستخدم من الأدمن
+    Handle admin user ID input
+    """
+    try:
+        # هذه الدالة احتياطية في حال الحاجة إليها مستقبلاً
+        send_message(chat_id, "⚠️ هذه الحالة غير مستخدمة حالياً.")
+        
+        if user_id in user_states:
+            del user_states[user_id]
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_user_id_input: {str(e)}")
+        logErrorWithDetails("admin_user_id_input_error", str(e), user_id)

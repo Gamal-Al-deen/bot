@@ -10,21 +10,41 @@ BOT_TOKEN = "8641656014:AAE4n6WqbnusGtWkf5a-RuMXomVRGIN_J5M"
 
 # ⚠️ ضع هنا مفتاح API الخاص بموقع SMM
 # ⚠️ Put your SMM website API key here
-API_KEY = "d4b3feb9bf3d7e4255f4e7d145d43f48"
+API_KEY = "9bf0c5cc6a73e611dd2a7fcee8c3a6c6"
 
 # رابط API الخاص بموقع SMM
 # SMM API URL
-API_URL = "https://smm-provider.com/api/v2"
+API_URL = "https://smmparty.com/api/v2"
 
 # رابط Telegram API (لا تقم بتعديله)
 # Telegram API URL (Do not modify)
 TELEGRAM_API_URL = "https://api.telegram.org/bot"
+
+# ⚠️ ضع هنا معرف الأدمن الخاص بك
+# ⚠️ Put your Admin Telegram ID here
+ADMIN_ID = "YOUR_ADMIN_ID_HERE"  # استبدل هذا بمعرفك
+
+# إعدادات المستخدمين والرصيد
+# User Balance Settings
+DEFAULT_BALANCE = 0.0  # الرصيد الافتراضي للمستخدمين الجدد
+
+# إعدادات التسعير الافتراضية
+# Default Pricing Settings
+DEFAULT_PRICING_TYPE = "percent"  # "percent" أو "fixed"
+DEFAULT_PRICING_VALUE = 50  # النسبة المئوية أو المبلغ الثابت
+
+# إعدادات قفل المستخدم
+# User Lock Settings
+USER_LOCK_TIMEOUT = 60  # مدة القفل بالثواني
 
 # معرفات الحالات للمحادثة
 # Conversation state identifiers
 STATE_WAITING_SERVICE = "WAITING_SERVICE"
 STATE_WAITING_LINK = "WAITING_LINK"
 STATE_WAITING_QUANTITY = "WAITING_QUANTITY"
+STATE_WAITING_ADMIN_ADD_BALANCE = "WAITING_ADMIN_ADD_BALANCE"
+STATE_WAITING_ADMIN_REMOVE_BALANCE = "WAITING_ADMIN_REMOVE_BALANCE"
+STATE_WAITING_ADMIN_USER_ID = "WAITING_ADMIN_USER_ID"
 
 # ⚠️ تأكد من تعيين القيم أعلاه بشكل صحيح قبل تشغيل البوت
 # ⚠️ Make sure to set the values above correctly before running the bot

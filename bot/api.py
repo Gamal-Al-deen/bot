@@ -306,6 +306,51 @@ class SMM_API:
         except Exception as e:
             log_error(f"❌ Health check failed: {type(e).__name__}")
             return False
+    
+    def get_service_by_id(self, service_id):
+        """
+        الحصول على معلومات خدمة معينة حسب المعرف
+        Get specific service information by ID
+        
+        @param service_id: معرف الخدمة
+        @return: dict - معلومات الخدمة أو None
+        """
+        try:
+            services = self.services()
+            
+            for service in services:
+                if str(service.get('service')) == str(service_id):
+                    log_error(f"✅ تم العثور على الخدمة: {service_id}")
+                    return service
+            
+            log_error(f"❌ لم يتم العثور على الخدمة: {service_id}")
+            return None
+        
+        except Exception as e:
+            log_error(f"❌ خطأ في get_service_by_id: {str(e)}")
+            return None
+    
+    def get_service_rate(self, service_id):
+        """
+        الحصول على سعر خدمة معينة
+        Get service rate by ID
+        
+        @param service_id: معرف الخدمة
+        @return: float - السعر لكل 1000 أو 0
+        """
+        try:
+            service = self.get_service_by_id(service_id)
+            
+            if service:
+                rate = float(service.get('rate', 0))
+                log_error(f"💰 سعر الخدمة {service_id}: {rate}$")
+                return rate
+            else:
+                return 0.0
+        
+        except Exception as e:
+            log_error(f"❌ خطأ في get_service_rate: {str(e)}")
+            return 0.0
 
 
 # ⚠️ يمكن تعديل هذه الفئة حسب احتياجاتك

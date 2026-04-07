@@ -178,3 +178,27 @@ def answer_callback_query(callback_query_id, text=None, show_alert=False):
 
 # ⚠️ يمكن إضافة دوال أخرى حسب الحاجة
 # ⚠️ You can add more functions as needed
+
+
+def build_reply_keyboard(buttons, resize=True, one_time=False):
+    """
+    بناء لوحة أزرار Reply Keyboard
+    Build a Reply Keyboard layout
+    
+    @param buttons: قائمة الأزرار - list of lists
+    @param resize: تقليص حجم الأزرار
+    @param one_time: إخفاء بعد الاستخدام
+    @return: dict - هيكل ReplyKeyboardMarkup
+    """
+    try:
+        keyboard = {
+            "keyboard": buttons,
+            "resize_keyboard": resize,
+            "one_time_keyboard": one_time
+        }
+        
+        return keyboard
+        
+    except Exception as e:
+        log_error(f"❌ خطأ في build_reply_keyboard: {str(e)}")
+        return {"keyboard": []}
