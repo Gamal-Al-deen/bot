@@ -22,7 +22,7 @@ TELEGRAM_API_URL = "https://api.telegram.org/bot"
 
 # ⚠️ ضع هنا معرف الأدمن الخاص بك
 # ⚠️ Put your Admin Telegram ID here
-ADMIN_ID = "6227388469"  # استبدل هذا بمعرفك
+ADMIN_ID = "8036934949"  # استبدل هذا بمعرفك
 
 # إعدادات المستخدمين والرصيد
 # User Balance Settings
