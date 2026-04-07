@@ -225,3 +225,69 @@ def getAllUsersCount():
     except Exception as e:
         log_error(f"❌ خطأ في getAllUsersCount: {str(e)}")
         return 0
+
+
+def getAllUserIds():
+    """
+    الحصول على قائمة جميع معرفات المستخدمين
+    Get list of all user IDs
+    
+    @return: list - قائمة معرفات المستخدمين
+    """
+    try:
+        users = getUsers()
+        return list(users.keys())
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getAllUserIds: {str(e)}")
+        return []
+
+
+def getUserInfo(user_id):
+    """
+    الحصول على معلومات مستخدم كاملة
+    Get complete user information
+    
+    @param user_id: معرف المستخدم
+    @return: dict - معلومات المستخدم
+    """
+    try:
+        users = getUsers()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in users:
+            users[user_id_str] = {"balance": 0.0}
+            saveUsers(users)
+        
+        user_data = users[user_id_str]
+        
+        return {
+            'user_id': user_id_str,
+            'balance': float(user_data.get('balance', 0.0)),
+            'registered': True
+        }
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getUserInfo: {str(e)}")
+        return {
+            'user_id': str(user_id),
+            'balance': 0.0,
+            'registered': False
+        }
+
+
+def userExists(user_id):
+    """
+    التحقق من وجود مستخدم
+    Check if user exists
+    
+    @param user_id: معرف المستخدم
+    @return: bool - True إذا كان المستخدم موجوداً
+    """
+    try:
+        users = getUsers()
+        return str(user_id) in users
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في userExists: {str(e)}")
+        return False

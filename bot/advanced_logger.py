@@ -118,3 +118,22 @@ def logErrorWithDetails(error_type, error_message, user_id=None, context=None):
     
     except Exception as e:
         log_error(f"❌ خطأ في logErrorWithDetails: {str(e)}")
+
+
+def logBroadcastOperation(admin_id, total_users, success_count, failed_count, message_preview):
+    """
+    تسجيل عملية إرسال رسالة جماعية
+    Log broadcast message operation
+    
+    @param admin_id: معرف الأدمن
+    @param total_users: إجمالي المستخدمين
+    @param success_count: عدد النجاح
+    @param failed_count: عدد الفشل
+    @param message_preview: معاينة الرسالة
+    """
+    try:
+        details = f"Total:{total_users} | Success:{success_count} | Failed:{failed_count} | Msg:{message_preview[:50]}"
+        logOperation("broadcast", admin_id, details)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في logBroadcastOperation: {str(e)}")
