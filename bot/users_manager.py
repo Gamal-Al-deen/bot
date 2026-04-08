@@ -393,3 +393,107 @@ def toggleNewUserNotifications():
     except Exception as e:
         log_error(f"❌ خطأ في toggleNewUserNotifications: {str(e)}")
         return True
+
+
+# ========== نظام قناة الإشعارات ==========
+
+CHANNEL_CONFIG_FILE = "channel_config.json"
+
+
+def getChannelConfig():
+    """
+    الحصول على إعدادات قناة النشر
+    Get channel notification configuration
+    
+    @return: dict - إعدادات القناة
+    """
+    try:
+        if os.path.exists(CHANNEL_CONFIG_FILE):
+            with open(CHANNEL_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config
+        else:
+            # إعدادات افتراضية - لا توجد قناة محددة
+            default_config = {
+                "channel_username": "",
+                "enabled": False
+            }
+            saveChannelConfig(default_config)
+            return default_config
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getChannelConfig: {str(e)}")
+        return {"channel_username": "", "enabled": False}
+
+
+def saveChannelConfig(config):
+    """
+    حفظ إعدادات قناة النشر
+    Save channel notification configuration
+    
+    @param config: dict - إعدادات القناة
+    """
+    try:
+        with open(CHANNEL_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في saveChannelConfig: {str(e)}")
+
+
+def setChannelUsername(username):
+    """
+    تعيين يوزرنيم القناة
+    Set channel username
+    
+    @param username: يوزرنيم القناة (مع أو بدون @)
+    @return: bool - True إذا تم الحفظ بنجاح
+    """
+    try:
+        # إزالة @ إذا كانت موجودة
+        username = username.strip().lstrip('@')
+        
+        config = getChannelConfig()
+        config["channel_username"] = username
+        config["enabled"] = True if username else False
+        
+        saveChannelConfig(config)
+        
+        log_error(f"📣 تم تعيين قناة النشر: @{username}")
+        return True
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في setChannelUsername: {str(e)}")
+        return False
+
+
+def getChannelUsername():
+    """
+    الحصول على يوزرنيم القناة
+    Get channel username
+    
+    @return: str - يوزرنيم القناة (بدون @)
+    """
+    try:
+        config = getChannelConfig()
+        return config.get("channel_username", "")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getChannelUsername: {str(e)}")
+        return ""
+
+
+def isChannelConfigured():
+    """
+    التحقق من إعداد القناة
+    Check if channel is configured
+    
+    @return: bool - True إذا تم إعداد القناة
+    """
+    try:
+        username = getChannelUsername()
+        return bool(username and username.strip())
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في isChannelConfigured: {str(e)}")
+        return False

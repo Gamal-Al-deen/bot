@@ -28,7 +28,10 @@ from users_manager import (
     getAllUsersCount,
     isNewUser,
     isNewUserNotificationsEnabled,
-    toggleNewUserNotifications
+    toggleNewUserNotifications,
+    getChannelUsername,
+    isChannelConfigured,
+    setChannelUsername
 )
 from pricing_system import (
     calculatePrice,
@@ -53,6 +56,7 @@ from advanced_logger import (
     logErrorWithDetails,
     logBroadcastOperation
 )
+from channel_handler import handle_channel_username_input as _channel_handler
 
 # إنشاء كائن API
 smm_api = SMM_API()
@@ -108,6 +112,8 @@ def handle_message(message):
             handle_admin_remove_balance_input(chat_id, user_id, text)
         elif state == 'WAITING_BROADCAST':
             handle_broadcast_message_input(chat_id, user_id, text)
+        elif state == 'WAITING_CHANNEL_USERNAME':
+            _channel_handler(chat_id, user_id, text, user_states)
         
         # معالجة الأوامر
         elif text == '/start':
@@ -223,6 +229,8 @@ def handle_callback_query(callback_query):
             handle_broadcast_command(chat_id, user_id)
         elif data == 'admin_notifications':
             handle_admin_notifications_toggle(chat_id, user_id)
+        elif data == 'admin_set_channel':
+            handle_admin_set_channel(chat_id, user_id)
         elif data.startswith('service_'):
             service_id = data.replace('service_', '')
             handle_service_selection(chat_id, user_id, service_id)
@@ -306,6 +314,59 @@ def send_new_user_notification(user_id, first_name, username):
     except Exception as e:
         log_error(f"❌ خطأ في send_new_user_notification: {str(e)}")
         logErrorWithDetails("new_user_notification_error", str(e), user_id)
+
+
+def send_order_notification_to_channel(service_name, price, user_id, username="لا يوجد"):
+    """
+    إرسال إشعار الطلب إلى القناة المحددة
+    Send order notification to configured channel
+    
+    @param service_name: اسم الخدمة
+    @param price: السعر المدفوع
+    @param user_id: معرف المستخدم
+    @param username: يوزرنيم المستخدم
+    """
+    try:
+        # التحقق من إعداد القناة
+        if not isChannelConfigured():
+            log_error(f"📣 لم يتم إعداد قناة النشر - تم تخطي إشعار الطلب")
+            return False
+        
+        # الحصول على يوزرنيم القناة
+        channel_username = getChannelUsername()
+        
+        if not channel_username:
+            log_error(f"⚠️ يوزرنيم القناة فارغ - لن يتم إرسال الإشعار")
+            return False
+        
+        # تنسيق يوزرنيم المستخدم
+        user_display = f"@{username}" if username and username != 'لا يوجد' else f"ID: {user_id}"
+        
+        # نص الرسالة
+        notification_text = (
+            f"📢 <b>طلب جديد!</b>\n\n"
+            f"🛒 <b>الخدمة:</b> {service_name}\n"
+            f"💰 <b>السعر:</b> ${price:.2f}\n"
+            f"👤 <b>المستخدم:</b> {user_display}\n\n"
+            f"📅 {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        # إرسال الرسالة إلى القناة
+        # ملاحظة: channel_username يجب أن يكون بدون @
+        channel_id = f"@{channel_username}"
+        result = send_message(channel_id, notification_text)
+        
+        if result:
+            log_error(f"📣 تم إرسال إشعار الطلب إلى القناة {channel_id}: Service={service_name}, Price=${price:.2f}, User={user_display}")
+            return True
+        else:
+            log_error(f"❌ فشل إرسال إشعار الطلب إلى القناة {channel_id}")
+            return False
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في send_order_notification_to_channel: {str(e)}")
+        logErrorWithDetails("channel_notification_error", str(e), user_id, f"service:{service_name}")
+        return False
 
 
 def handle_start_command(chat_id, user_id, first_name="مستخدم", username="لا يوجد"):
@@ -652,6 +713,23 @@ def handle_order_confirmation(chat_id, user_id):
             send_message(chat_id, text, reply_markup)
             logOrderOperation(user_id, order_id, service_id, quantity, final_price, "success")
             log_error(f"✅ Order successful for user {user_id} - Order ID: {order_id}")
+            
+            # إرسال إشعار إلى القناة (في الخلفية - لا يؤثر على سرعة الطلب)
+            try:
+                # الحصول على معلومات المستخدم
+                user_info = getUserInfo(user_id)
+                username = message.get('from', {}).get('username', 'لا يوجد') if 'message' in locals() else 'لا يوجد'
+                
+                # إرسال الإشعار للقناة
+                send_order_notification_to_channel(
+                    service_name=f"Service #{service_id}",
+                    price=final_price,
+                    user_id=user_id,
+                    username=username
+                )
+            except Exception as e:
+                # لا نسمح لأي خطأ بالتأثير على الطلب
+                log_error(f"⚠️ خطأ في إرسال إشعار القناة (لن يؤثر على الطلب): {str(e)}")
         else:
             addBalance(user_id, final_price)
             balance_after_refund = getBalance(user_id)
@@ -1145,6 +1223,7 @@ def handle_admin_panel(chat_id, user_id, first_name="أدمن"):
             [{'text': '📊 عرض التسعير', 'callback_data': 'admin_show_pricing'}],
             [{'text': '📢 رسالة جماعية', 'callback_data': 'admin_broadcast'}],
             [{'text': '🔔 إشعارات المستخدمين', 'callback_data': 'admin_notifications'}],
+            [{'text': '📣 إعداد قناة النشر', 'callback_data': 'admin_set_channel'}],
             [{'text': '🔄 تحديث', 'callback_data': 'refresh'}, {'text': '🔙 عودة', 'callback_data': 'back'}]
         ]
         
@@ -1270,6 +1349,49 @@ def handle_admin_notifications_toggle(chat_id, user_id):
     except Exception as e:
         log_error(f"❌ خطأ في handle_admin_notifications_toggle: {str(e)}")
         logErrorWithDetails("admin_notifications_toggle_error", str(e), user_id)
+
+
+def handle_admin_set_channel(chat_id, user_id):
+    """
+    معالجة زر إعداد قناة النشر من لوحة الأدمن
+    Handle admin set channel button
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_set_channel"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        # الحصول على القناة الحالية
+        current_channel = getChannelUsername()
+        
+        if current_channel:
+            text = f"📣 <b>إعداد قناة النشر</b>\n\n"
+            text += f"📊 <b>القناة الحالية:</b> @{current_channel}\n\n"
+            text += f"الآن أرسل يوزرنيم القناة الجديدة (مع أو بدون @)\n\n"
+            text += f"💡 مثال: @mychannel أو mychannel\n\n"
+            text += f"⚠️ <b>مهم:</b> تأكد أن البوت مضاف كأدمن في القناة"
+        else:
+            text = f"📣 <b>إعداد قناة النشر</b>\n\n"
+            text += f"📊 <b>القناة الحالية:</b> لم يتم تحديد قناة\n\n"
+            text += f"الآن أرسل يوزرنيم القناة (مع أو بدون @)\n\n"
+            text += f"💡 مثال: @mychannel أو mychannel\n\n"
+            text += f"⚠️ <b>مهم:</b> تأكد أن البوت مضاف كأدمن في القناة"
+        
+        # تعيين حالة الانتظار
+        user_states[user_id] = {
+            'state': 'WAITING_CHANNEL_USERNAME'
+        }
+        
+        keyboard = [[{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"📣 Admin {user_id} opened channel setup")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_set_channel: {str(e)}")
+        logErrorWithDetails("admin_set_channel_error", str(e), user_id)
 
 
 def handle_broadcast_command(chat_id, user_id):
