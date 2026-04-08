@@ -28,7 +28,6 @@ from users_manager import (
     getAllUsersCount,
     isNewUser,
     isNewUserNotificationsEnabled,
-    getAdminId,
     toggleNewUserNotifications
 )
 from pricing_system import (
