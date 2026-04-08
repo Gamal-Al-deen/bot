@@ -25,7 +25,11 @@ from users_manager import (
     deductBalance, 
     getUserInfo,
     getAllUserIds,
-    getAllUsersCount
+    getAllUsersCount,
+    isNewUser,
+    isNewUserNotificationsEnabled,
+    getAdminId,
+    toggleNewUserNotifications
 )
 from pricing_system import (
     calculatePrice,
@@ -135,7 +139,36 @@ def handle_message(message):
             handle_broadcast_command(chat_id, user_id)
         
         else:
-            send_message(chat_id, "👋 مرحباً! استخدم الأزرار في الأسفل للتعامل مع البوت.")
+            # رسالة عادية غير معروفة - عرض الرسالة مع الأزرار
+            admin_check = checkAdminAccess(user_id, "unknown_message")
+            is_admin = admin_check['access_granted']
+            
+            text = (
+                "👋 مرحباً! استخدم الأزرار في الأسفل للتعامل مع البوت.\n\n"
+                "يمكنك استخدام:\n"
+                "• /start - لإعادة تشغيل البوت\n"
+                "• /balance - لعرض رصيدك\n"
+                "• /services - لعرض الخدمات"
+            )
+            
+            # بناء الأزرار حسب نوع المستخدم
+            if is_admin:
+                keyboard = [
+                    [{'text': '💰 رصيدي', 'callback_data': 'balance'}, {'text': '🛒 الخدمات', 'callback_data': 'services'}],
+                    [{'text': '👤 حسابي', 'callback_data': 'my_account'}],
+                    [{'text': '💳 الدفع / الاشتراك', 'callback_data': 'payment_info'}, {'text': '🔄 تحديث', 'callback_data': 'refresh'}],
+                    [{'text': '👑 لوحة الأدمن', 'callback_data': 'admin_panel'}]
+                ]
+            else:
+                keyboard = [
+                    [{'text': '💰 رصيدي', 'callback_data': 'balance'}, {'text': '🛒 الخدمات', 'callback_data': 'services'}],
+                    [{'text': '👤 حسابي', 'callback_data': 'my_account'}],
+                    [{'text': '📞 التواصل مع الادمن', 'callback_data': 'contact_admin'}, {'text': '💳 الدفع / الاشتراك', 'callback_data': 'payment_info'}],
+                    [{'text': '🔄 تحديث', 'callback_data': 'refresh'}]
+                ]
+            
+            reply_markup = build_inline_keyboard(keyboard)
+            send_message(chat_id, text, reply_markup)
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_message: {str(e)}")
@@ -179,6 +212,18 @@ def handle_callback_query(callback_query):
             handle_payment_info(chat_id, user_id)
         elif data == 'refresh':
             handle_refresh(chat_id, user_id, first_name, username)
+        elif data == 'admin_panel':
+            handle_admin_panel(chat_id, user_id, first_name)
+        elif data == 'admin_add_balance':
+            handle_admin_add_balance_inline(chat_id, user_id)
+        elif data == 'admin_remove_balance':
+            handle_admin_remove_balance_inline(chat_id, user_id)
+        elif data == 'admin_show_pricing':
+            handle_admin_show_pricing_inline(chat_id, user_id)
+        elif data == 'admin_broadcast':
+            handle_broadcast_command(chat_id, user_id)
+        elif data == 'admin_notifications':
+            handle_admin_notifications_toggle(chat_id, user_id)
         elif data.startswith('service_'):
             service_id = data.replace('service_', '')
             handle_service_selection(chat_id, user_id, service_id)
@@ -202,16 +247,85 @@ def handle_callback_query(callback_query):
         logErrorWithDetails("handle_callback_error", str(e), user_id if 'user_id' in locals() else None)
 
 
-def handle_start_command(chat_id, user_id, first_name="مستخدم", username="لا يوجد"):
+def send_new_user_notification(user_id, first_name, username):
     """
-    معالجة أمر /start - مع فحص جذري للأدمن
-    Handle /start command - With radical admin check
+    إرسال إشعار للأدمن عند انضمام مستخدم جديد
+    Send notification to admin when new user joins
+    
+    @param user_id: معرف المستخدم الجديد
+    @param first_name: الاسم الأول
+    @param username: اليوزرنيم
     """
     try:
+        # التحقق من تفعيل الإشعارات
+        if not isNewUserNotificationsEnabled():
+            log_error(f"🔔 إشعارات المستخدمين الجدد متوقفة - تم تخطي الإشعار للمستخدم {user_id}")
+            return
+        
+        # الحصول على معرف الأدمن
+        admin_id = getAdminId()
+        
+        # التحقق من إعداد ADMIN_ID
+        if admin_id in ['', 'YOUR_ADMIN_ID_HERE', '0']:
+            log_error(f"⚠️ لم يتم إعداد ADMIN_ID - لن يتم إرسال إشعار للمستخدم الجديد {user_id}")
+            return
+        
+        # حساب إجمالي المستخدمين
+        total_users = getAllUsersCount()
+        
+        # تنسيق اليوزرنيم
+        username_display = f"@{username}" if username and username != 'لا يوجد' else "لا يوجد"
+        
+        # نص الإشعار
+        notification_text = (
+            f"🚀 <b>مستخدم جديد انضم للبوت!</b>\n\n"
+            f"👤 <b>الاسم:</b> {first_name}\n"
+            f"🔗 <b>اليوزرنيم:</b> {username_display}\n"
+            f"🆔 <b>ID:</b> <code>{user_id}</code>\n\n"
+            f"👥 <b>إجمالي المستخدمين:</b> {total_users}\n\n"
+            f"📅 <b>تاريخ الانضمام:</b> {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        # أزرار سريعة للإشعار
+        keyboard = [
+            [{'text': '💰 إضافة رصيد', 'callback_data': 'admin_add_balance'}],
+            [{'text': '👤 عرض الحساب', 'url': f'https://t.me/{username}' if username and username != 'لا يوجد' else None}]
+        ]
+        
+        # إزالة الأزرار التي تحتوي على None
+        keyboard = [[btn for btn in row if btn.get('url') or btn.get('callback_data')] for row in keyboard]
+        keyboard = [row for row in keyboard if row]  # إزالة الصفوف الفارغة
+        
+        if keyboard:
+            reply_markup = build_inline_keyboard(keyboard)
+            send_message(admin_id, notification_text, reply_markup)
+        else:
+            send_message(admin_id, notification_text)
+        
+        log_error(f"🔔 تم إرسال إشعار المستخدم الجديد للأدمن: User {user_id} ({first_name}) | Total: {total_users}")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في send_new_user_notification: {str(e)}")
+        logErrorWithDetails("new_user_notification_error", str(e), user_id)
+
+
+def handle_start_command(chat_id, user_id, first_name="مستخدم", username="لا يوجد"):
+    """
+    معالجة أمر /start - مع فحص جذري للأدمن وإشعار المستخدمين الجدد
+    Handle /start command - With radical admin check and new user notification
+    """
+    try:
+        # التحقق مما إذا كان المستخدم جديد
+        is_new = isNewUser(user_id)
+        
         # مسح حالة المستخدم
         if user_id in user_states:
             del user_states[user_id]
         releaseLock(user_id)
+        
+        # إرسال إشعار للأدمن إذا كان المستخدم جديد
+        if is_new:
+            send_new_user_notification(user_id, first_name, username)
         
         # فحص جذري للأدمن
         admin_check = checkAdminAccess(user_id, "start_command")
@@ -494,7 +608,7 @@ def handle_order_confirmation(chat_id, user_id):
         services = smm_api.services()
         service_info = None
         for service in services:
-            if str(service.get('service')) == str(service_id):
+              if str(service.get('service')) == str(service_id):
                 service_info = service
                 break
         
@@ -991,6 +1105,172 @@ def handle_admin_show_pricing(chat_id, user_id):
     except Exception as e:
         log_error(f"❌ خطأ في handle_admin_show_pricing: {str(e)}")
         logErrorWithDetails("admin_show_pricing_error", str(e), user_id)
+
+
+def handle_admin_panel(chat_id, user_id, first_name="أدمن"):
+    """
+    عرض لوحة تحكم الأدمن الكاملة
+    Show admin control panel
+    """
+    try:
+        # فحص جذري للأدمن
+        if not validateAdminCommand(user_id, "admin_panel"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذه الميزة.")
+            return
+        
+        # الحصول على الإحصائيات
+        total_users = getAllUsersCount()
+        admin_id = getAdminId()
+        pricing_info = getPricingInfo()
+        
+        # نص لوحة التحكم
+        text = f"👑 <b>لوحة تحكم الأدمن</b>\n\n"
+        text += f"👤 مرحباً: {first_name}\n"
+        text += f"🆔 ID الأدمن: <code>{admin_id}</code>\n\n"
+        text += f"📊 <b>إحصائيات البوت:</b>\n"
+        text += f"👥 إجمالي المستخدمين: {total_users}\n\n"
+        text += f"⚙️ <b>الأوامر المتاحة:</b>\n\n"
+        text += f"💰 <b>إدارة الرصيد:</b>\n"
+        text += f"  • <code>/addbalance ID AMOUNT</code> - إضافة رصيد\n"
+        text += f"  • <code>/removebalance ID AMOUNT</code> - خصم رصيد\n\n"
+        text += f"📈 <b>إدارة التسعير:</b>\n"
+        text += f"  • <code>/setpercent VALUE</code> - تسعير نسبي\n"
+        text += f"  • <code>/setprice VALUE</code> - تسعير ثابت\n"
+        text += f"  • <code>/price</code> - عرض التسعير الحالي\n\n"
+        text += f"📢 <b>الرسائل الجماعية:</b>\n"
+        text += f"  • <code>/broadcast</code> - إرسال رسالة للجميع\n"
+        
+        # أزرار لوحة التحكم
+        keyboard = [
+            [{'text': '💰 إضافة رصيد', 'callback_data': 'admin_add_balance'}, {'text': '💸 خصم رصيد', 'callback_data': 'admin_remove_balance'}],
+            [{'text': '📊 عرض التسعير', 'callback_data': 'admin_show_pricing'}],
+            [{'text': '📢 رسالة جماعية', 'callback_data': 'admin_broadcast'}],
+            [{'text': '🔔 إشعارات المستخدمين', 'callback_data': 'admin_notifications'}],
+            [{'text': '🔄 تحديث', 'callback_data': 'refresh'}, {'text': '🔙 عودة', 'callback_data': 'back'}]
+        ]
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"👑 Admin panel accessed by {user_id}")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_panel: {str(e)}")
+        logErrorWithDetails("admin_panel_error", str(e), user_id)
+
+
+def handle_admin_add_balance_inline(chat_id, user_id):
+    """
+    معالجة زر إضافة رصيد من لوحة الأدمن
+    Handle admin add balance inline button
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_add_balance_inline"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        send_message(
+            chat_id,
+            "💰 <b>إضافة رصيد لمستخدم</b>\n\n"
+            "الاستخدام:\n"
+            "<code>/addbalance USER_ID AMOUNT</code>\n\n"
+            "مثال:\n"
+            "<code>/addbalance 123456789 10</code>\n\n"
+            "أو:\n"
+            "<code>/addbalance USER_ID</code> (ثم إرسال المبلغ)"
+        )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_add_balance_inline: {str(e)}")
+
+
+def handle_admin_remove_balance_inline(chat_id, user_id):
+    """
+    معالجة زر خصم رصيد من لوحة الأدمن
+    Handle admin remove balance inline button
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_remove_balance_inline"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        send_message(
+            chat_id,
+            "💸 <b>خصم رصيد من مستخدم</b>\n\n"
+            "الاستخدام:\n"
+            "<code>/removebalance USER_ID AMOUNT</code>\n\n"
+            "مثال:\n"
+            "<code>/removebalance 123456789 5</code>\n\n"
+            "أو:\n"
+            "<code>/removebalance USER_ID</code> (ثم إرسال المبلغ)"
+        )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_remove_balance_inline: {str(e)}")
+
+
+def handle_admin_show_pricing_inline(chat_id, user_id):
+    """
+    معالجة زر عرض التسعير من لوحة الأدمن
+    Handle admin show pricing inline button
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_show_pricing_inline"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        pricing_info = getPricingInfo()
+        
+        keyboard = [[{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, pricing_info, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_show_pricing_inline: {str(e)}")
+
+
+def handle_admin_notifications_toggle(chat_id, user_id):
+    """
+    معالجة زر إشعارات المستخدمين من لوحة الأدمن
+    Handle admin notifications toggle button
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_notifications_toggle"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        # تبديل حالة الإشعارات
+        new_state = toggleNewUserNotifications()
+        
+        # عرض الحالة الجديدة
+        if new_state:
+            status_text = "✅ <b>مفعّلة</b>"
+            status_emoji = "🔔"
+            description = "سيتم إرسال إشعار للأدمن عند انضمام كل مستخدم جديد"
+        else:
+            status_text = "❌ <b>متوقفة</b>"
+            status_emoji = "🔕"
+            description = "لن يتم إرسال إشعارات عند انضمام مستخدمين جدد"
+        
+        text = f"{status_emoji} <b>إشعارات المستخدمين الجدد</b>\n\n"
+        text += f"📊 <b>الحالة:</b> {status_text}\n\n"
+        text += f"💡 {description}\n\n"
+        text += f"اضغط على الزر أدناه للتبديل بين التفعيل والإيقاف"
+        
+        keyboard = [
+            [{'text': '🔄 تبديل الحالة', 'callback_data': 'admin_notifications'}],
+            [{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}]
+        ]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"🔔 Admin {user_id} toggled notifications: {'Enabled' if new_state else 'Disabled'}")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_notifications_toggle: {str(e)}")
+        logErrorWithDetails("admin_notifications_toggle_error", str(e), user_id)
 
 
 def handle_broadcast_command(chat_id, user_id):

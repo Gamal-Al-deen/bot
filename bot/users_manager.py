@@ -291,3 +291,105 @@ def userExists(user_id):
     except Exception as e:
         log_error(f"❌ خطأ في userExists: {str(e)}")
         return False
+
+
+def isNewUser(user_id):
+    """
+    التحقق مما إذا كان المستخدم جديد (أول مرة)
+    Check if user is new (first time)
+    
+    @param user_id: معرف المستخدم
+    @return: bool - True إذا كان المستخدم جديد
+    """
+    try:
+        return not userExists(user_id)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في isNewUser: {str(e)}")
+        return False
+
+
+# ========== نظام إشعارات الأدمن ==========
+
+NOTIFICATIONS_FILE = "admin_notifications.json"
+
+
+def getNotificationSettings():
+    """
+    الحصول على إعدادات إشعارات الأدمن
+    Get admin notification settings
+    
+    @return: dict - إعدادات الإشعارات
+    """
+    try:
+        if os.path.exists(NOTIFICATIONS_FILE):
+            with open(NOTIFICATIONS_FILE, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                return settings
+        else:
+            # إعدادات افتراضية - الإشعارات مفعّلة
+            default_settings = {
+                "new_user_notifications": True
+            }
+            saveNotificationSettings(default_settings)
+            return default_settings
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getNotificationSettings: {str(e)}")
+        return {"new_user_notifications": True}
+
+
+def saveNotificationSettings(settings):
+    """
+    حفظ إعدادات إشعارات الأدمن
+    Save admin notification settings
+    
+    @param settings: dict - إعدادات الإشعارات
+    """
+    try:
+        with open(NOTIFICATIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=4, ensure_ascii=False)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في saveNotificationSettings: {str(e)}")
+
+
+def isNewUserNotificationsEnabled():
+    """
+    التحقق من تفعيل إشعارات المستخدمين الجدد
+    Check if new user notifications are enabled
+    
+    @return: bool - True إذا كانت مفعّلة
+    """
+    try:
+        settings = getNotificationSettings()
+        return settings.get("new_user_notifications", True)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في isNewUserNotificationsEnabled: {str(e)}")
+        return True  # افتراضياً مفعّلة
+
+
+def toggleNewUserNotifications():
+    """
+    تبديل حالة إشعارات المستخدمين الجدد (تفعيل/إيقاف)
+    Toggle new user notifications (enable/disable)
+    
+    @return: bool - الحالة الجديدة بعد التبديل
+    """
+    try:
+        settings = getNotificationSettings()
+        current_state = settings.get("new_user_notifications", True)
+        new_state = not current_state
+        
+        settings["new_user_notifications"] = new_state
+        saveNotificationSettings(settings)
+        
+        status = "مفعّلة ✅" if new_state else "متوقفة ❌"
+        log_error(f"🔔 تم تبديل إشعارات المستخدمين الجدد: {status}")
+        
+        return new_state
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في toggleNewUserNotifications: {str(e)}")
+        return True
