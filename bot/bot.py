@@ -59,6 +59,16 @@ from advanced_logger import (
     logBroadcastOperation
 )
 from channel_handler import handle_channel_username_input as _channel_handler
+from service_manager import (
+    getAllCategories,
+    addCategory,
+    deleteCategory,
+    addServiceToCategory,
+    deleteServiceFromCategory,
+    getServicesByCategory,
+    getAllServicesFlat,
+    getServiceInfo
+)
 
 # إنشاء كائن API
 smm_api = SMM_API()
@@ -116,6 +126,10 @@ def handle_message(message):
             handle_broadcast_message_input(chat_id, user_id, text)
         elif state == 'WAITING_CHANNEL_USERNAME':
             _channel_handler(chat_id, user_id, text, user_states)
+        elif state == 'WAITING_CATEGORY_NAME':
+            handle_add_category_input(chat_id, user_id, text)
+        elif state in ['WAITING_SERVICE_ID', 'WAITING_SERVICE_CONFIRM']:
+            handle_service_id_input(chat_id, user_id, text)
         
         # معالجة الأوامر
         elif text == '/start':
@@ -233,8 +247,35 @@ def handle_callback_query(callback_query):
             handle_admin_notifications_toggle(chat_id, user_id)
         elif data == 'admin_set_channel':
             handle_admin_set_channel(chat_id, user_id)
+        elif data == 'admin_services_management':
+            handle_admin_services_menu(chat_id, user_id)
+        elif data == 'admin_add_category':
+            handle_admin_add_category(chat_id, user_id)
+        elif data == 'admin_delete_category':
+            handle_admin_delete_category(chat_id, user_id)
+        elif data == 'admin_add_service':
+            handle_admin_add_service(chat_id, user_id)
+        elif data == 'admin_delete_service':
+            handle_admin_delete_service(chat_id, user_id)
+        elif data == 'confirm_add_service':
+            handle_confirm_add_service(chat_id, user_id)
+        elif data.startswith('confirm_delete_cat_'):
+            category_name = data.replace('confirm_delete_cat_', '')
+            handle_confirm_delete_category(chat_id, user_id, category_name)
+        elif data.startswith('add_service_to_'):
+            category_name = data.replace('add_service_to_', '')
+            handle_add_service_to_category(chat_id, user_id, category_name)
+        elif data.startswith('confirm_delete_svc_'):
+            # Format: confirm_delete_svc_CATEGORY_SERVICEID
+            parts = data.replace('confirm_delete_svc_', '').rsplit('_', 1)
+            if len(parts) == 2:
+                category_name, service_id = parts
+                handle_confirm_delete_service(chat_id, user_id, category_name, int(service_id))
         elif data == 'contact_admin':
             handle_contact_admin(chat_id, user_id, username)
+        elif data.startswith('category_'):
+            category_name = data.replace('category_', '')
+            handle_category_services(chat_id, user_id, category_name)
         elif data.startswith('service_'):
             service_id = data.replace('service_', '')
             handle_service_selection(chat_id, user_id, service_id)
@@ -492,49 +533,31 @@ def handle_balance(chat_id, user_id):
 
 def handle_services(chat_id, user_id, page=0):
     """
-    معالجة طلب قائمة الخدمات
-    Handle services list request
+    معالجة طلب قائمة الخدمات - عرض الأقسام والخدمات المضافة من الأدمن فقط
+    Handle services list request - Show only admin-added categories and services
     """
     try:
-        services = smm_api.services()
+        # الحصول على الأقسام المضافة من الأدمن
+        categories = getAllCategories()
         
-        if not services:
-            send_message(chat_id, "❌ لا توجد خدمات متاحة حالياً.")
+        if not categories:
+            send_message(chat_id, "🚧 <b>الخدمات قيد الإعداد</b>\n\nسيتم إضافة الخدمات قريباً.\nيرجى الانتظار أو التواصل مع الأدمن.")
             return
         
-        services_per_page = 10
-        total_pages = (len(services) + services_per_page - 1) // services_per_page
+        # عرض قائمة الأقسام
+        text = f"📁 <b>اختر القسم:</b>\n\n"
         
-        start_idx = page * services_per_page
-        end_idx = min(start_idx + services_per_page, len(services))
-        page_services = services[start_idx:end_idx]
+        for idx, category in enumerate(categories, 1):
+            services_count = len(getServicesByCategory(category))
+            text += f"{idx}️⃣ <b>{category}</b>\n"
+            text += f"   🛒 الخدمات المتاحة: {services_count}\n\n"
         
-        text = f"<b>🛒 اختر الخدمة (صفحة {page + 1}/{total_pages}):</b>\n\n"
-        
-        for idx, service in enumerate(page_services, start_idx + 1):
-            name = service.get('name', 'خدمة غير معروفة')[:50]
-            base_rate = float(service.get('rate', 0))
-            service_id = service.get('service', 0)
-            final_rate = calculatePrice(base_rate)
-            
-            text += f"{idx}. <b>{name}</b>\n"
-            text += f"   💵 السعر: ${final_rate:.6f} لكل 1000\n"
-            text += f"   🆔 ID: <code>{service_id}</code>\n\n"
-        
+        # بناء أزرار الأقسام
         buttons = []
-        for service in page_services:
-            service_id = service.get('service', 0)
-            name = service.get('name', 'خدمة')[:40]
-            buttons.append([{'text': f'📍 {name}', 'callback_data': f'service_{service_id}'}])
-        
-        nav_buttons = []
-        if page > 0:
-            nav_buttons.append({'text': '⬅️ السابق', 'callback_data': f'page_{page-1}'})
-        if page < total_pages - 1:
-            nav_buttons.append({'text': 'التالي ➡️', 'callback_data': f'page_{page+1}'})
-        
-        if nav_buttons:
-            buttons.append(nav_buttons)
+        for category in categories:
+            services_count = len(getServicesByCategory(category))
+            btn_text = f"📁 {category} ({services_count})"
+            buttons.append([{'text': btn_text, 'callback_data': f'category_{category}'}])
         
         buttons.append([{'text': '🔙 عودة', 'callback_data': 'back'}])
         
@@ -545,6 +568,52 @@ def handle_services(chat_id, user_id, page=0):
         log_error(f"❌ خطأ في handle_services: {str(e)}")
         send_message(chat_id, "❌ حدث خطأ أثناء جلب الخدمات.")
         logErrorWithDetails("services_error", str(e), user_id)
+
+
+def handle_category_services(chat_id, user_id, category_name):
+    """
+    عرض خدمات قسم معين
+    Show services for a specific category
+    """
+    try:
+        services = getServicesByCategory(category_name)
+        
+        if not services:
+            send_message(chat_id, f"❌ لا توجد خدمات في قسم '{category_name}' حالياً.")
+            return
+        
+        text = f"📁 <b>{category_name}</b>\n\n"
+        text += f"🛒 <b>الخدمات المتاحة:</b>\n\n"
+        
+        # بناء أزرار الخدمات
+        buttons = []
+        for idx, service in enumerate(services, 1):
+            service_id = service.get('service_id')
+            service_name = service.get('service_name', 'خدمة')
+            
+            # الحصول على السعر من API
+            base_rate = smm_api.get_service_rate(service_id)
+            final_rate = calculatePrice(base_rate)
+            
+            text += f"{idx}. <b>{service_name}</b>\n"
+            text += f"   💵 السعر: ${final_rate:.6f} لكل 1000\n"
+            text += f"   🆔 ID: <code>{service_id}</code>\n\n"
+            
+            # زر للخدمة
+            btn_text = f"📍 {service_name[:40]}"
+            buttons.append([{'text': btn_text, 'callback_data': f'service_{service_id}'}])
+        
+        buttons.append([{'text': '🔙 العودة للأقسام', 'callback_data': 'services'}])
+        
+        reply_markup = build_inline_keyboard(buttons)
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"📁 User {user_id} viewed category: {category_name} ({len(services)} services)")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_category_services: {str(e)}")
+        send_message(chat_id, "❌ حدث خطأ أثناء جلب خدمات القسم.")
+        logErrorWithDetails("category_services_error", str(e), user_id)
 
 
 def handle_service_selection(chat_id, user_id, service_id):
@@ -881,11 +950,11 @@ def handle_contact_admin(chat_id, user_id, username="لا يوجد"):
         
         # نص رسالة التواصل
         text = f"📞 <b>للتواصل مع الدعم:</b>\n\n"
-        text += f"👨‍💼 <b>الأدمن:</b> @{admin_id}\n\n"
-        text += f"🆔 <b>ID الخاص بك:</b> <code>{user_id}</code>\n"
-        text += f"💡 <b>أرسل هذا ID عند التواصل مع الأدمن</b>\n\n"
-        text += f"⏰ <b>أوقات العمل:</b> 24/7\n"
-        text += f"💬 <b>نحن هنا لمساعدتك!</b>"
+        text += f"مرحباً بكم،\n\n"
+        text += f"إذا كنتم بحاجة إلى أي مساعدة أو لديكم استفسار، يُرجى التواصل مع المسؤول عبر إحدى الطرق التالية:</code>\n"
+        text += f"✅ **تيليجرام:** @aym_nn7</b>\n\n"
+        text += f"✅ **واتساب:** [اضغط هنا للدردشة](https://wa.me/967717152606)</b> 24/7\n"
+        text += f"🕊️ شكراً لتواصلكم، وسنحرص على الرد عليكم في أقرب وقت ممكن.</b>"
         
         keyboard = [[{'text': '🔙 عودة', 'callback_data': 'back'}]]
         reply_markup = build_inline_keyboard(keyboard)
@@ -1306,6 +1375,7 @@ def handle_admin_panel(chat_id, user_id, first_name="أدمن"):
             [{'text': '📢 رسالة جماعية', 'callback_data': 'admin_broadcast'}],
             [{'text': '🔔 إشعارات المستخدمين', 'callback_data': 'admin_notifications'}],
             [{'text': '📣 إعداد قناة النشر', 'callback_data': 'admin_set_channel'}],
+            [{'text': '📁 إدارة الخدمات', 'callback_data': 'admin_services_management'}],
             [{'text': '🔄 تحديث', 'callback_data': 'refresh'}, {'text': '🔙 عودة', 'callback_data': 'back'}]
         ]
         
@@ -1474,6 +1544,399 @@ def handle_admin_set_channel(chat_id, user_id):
     except Exception as e:
         log_error(f"❌ خطأ في handle_admin_set_channel: {str(e)}")
         logErrorWithDetails("admin_set_channel_error", str(e), user_id)
+
+
+# ========== إدارة الخدمات والأقسام ==========
+
+def handle_admin_services_menu(chat_id, user_id):
+    """
+    عرض قائمة إدارة الخدمات والأقسام
+    Show services management menu
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_services_management"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        categories = getAllCategories()
+        all_services = getAllServicesFlat()
+        
+        text = f"📁 <b>إدارة الخدمات والأقسام</b>\n\n"
+        text += f"📊 <b>الإحصائيات:</b>\n"
+        text += f"📁 الأقسام: {len(categories)}\n"
+        text += f"🛒 الخدمات: {len(all_services)}\n\n"
+        text += f"💡 <b>اختر عملية:</b>"
+        
+        keyboard = [
+            [{'text': '➕ إضافة قسم جديد', 'callback_data': 'admin_add_category'}],
+            [{'text': '🗑️ حذف قسم', 'callback_data': 'admin_delete_category'}],
+            [{'text': '➕ إضافة خدمة', 'callback_data': 'admin_add_service'}],
+            [{'text': '🗑️ حذف خدمة', 'callback_data': 'admin_delete_service'}],
+            [{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}]
+        ]
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"📁 Admin {user_id} opened services management")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_services_menu: {str(e)}")
+        logErrorWithDetails("admin_services_menu_error", str(e), user_id)
+
+
+def handle_admin_add_category(chat_id, user_id):
+    """
+    معالجة إضافة قسم جديد
+    Handle add new category
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_add_category"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        user_states[user_id] = {
+            'state': 'WAITING_CATEGORY_NAME'
+        }
+        
+        keyboard = [[{'text': '🔙 إلغاء', 'callback_data': 'admin_services_management'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(
+            chat_id,
+            "➕ <b>إضافة قسم جديد</b>\n\n"
+            "الآن أرسل اسم القسم الجديد:\n\n"
+            "💡 مثال: خدمات الفيسبوك، التيلجرام، الانستجرام",
+            reply_markup
+        )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_add_category: {str(e)}")
+        logErrorWithDetails("admin_add_category_error", str(e), user_id)
+
+
+def handle_add_category_input(chat_id, user_id, text):
+    """
+    معالجة إدخال اسم القسم
+    Handle category name input
+    """
+    try:
+        # مسح حالة الانتظار
+        if user_id in user_states:
+            del user_states[user_id]
+        
+        category_name = text.strip()
+        
+        if not category_name:
+            send_message(chat_id, "❌ اسم القسم لا يمكن أن يكون فارغاً.")
+            return
+        
+        if addCategory(category_name):
+            keyboard = [[{'text': '🔙 عودة للإدارة', 'callback_data': 'admin_services_management'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(
+                chat_id,
+                f"✅ <b>تم إضافة القسم بنجاح!</b>\n\n"
+                f"📁 <b>القسم:</b> {category_name}\n\n"
+                f"💡 يمكنك الآن إضافة خدمات لهذا القسم",
+                reply_markup
+            )
+            
+            log_error(f"📁 Category added: {category_name} by admin {user_id}")
+        else:
+            send_message(chat_id, "❌ فشل إضافة القسم. قد يكون موجوداً بالفعل.")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_add_category_input: {str(e)}")
+        logErrorWithDetails("add_category_input_error", str(e), user_id)
+
+
+def handle_admin_delete_category(chat_id, user_id):
+    """
+    عرض قائمة الأقسام للحذف
+    Show categories list for deletion
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_delete_category"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        categories = getAllCategories()
+        
+        if not categories:
+            send_message(chat_id, "❌ لا توجد أقسام لحذفها.")
+            return
+        
+        text = f"🗑️ <b>حذف قسم</b>\n\n"
+        text += f"اختر القسم الذي تريد حذفه:\n\n"
+        text += f"⚠️ <b>تحذير:</b> سيتم حذف القسم وجميع خدماته!"
+        
+        keyboard = []
+        for cat in categories:
+            keyboard.append([{'text': f'🗑️ {cat}', 'callback_data': f'confirm_delete_cat_{cat}'}])
+        
+        keyboard.append([{'text': '🔙 إلغاء', 'callback_data': 'admin_services_management'}])
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        send_message(chat_id, text, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_delete_category: {str(e)}")
+        logErrorWithDetails("admin_delete_category_error", str(e), user_id)
+
+
+def handle_confirm_delete_category(chat_id, user_id, category_name):
+    """
+    تأكيد حذف قسم
+    Confirm category deletion
+    """
+    try:
+        if deleteCategory(category_name):
+            keyboard = [[{'text': '🔙 عودة للإدارة', 'callback_data': 'admin_services_management'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(
+                chat_id,
+                f"✅ <b>تم حذف القسم بنجاح!</b>\n\n"
+                f"🗑️ <b>القسم المحذوف:</b> {category_name}\n\n"
+                f"تم حذف القسم وجميع خدماته.",
+                reply_markup
+            )
+            
+            log_error(f"🗑️ Category deleted: {category_name} by admin {user_id}")
+        else:
+            send_message(chat_id, f"❌ فشل حذف القسم '{category_name}'.")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_confirm_delete_category: {str(e)}")
+        logErrorWithDetails("confirm_delete_category_error", str(e), user_id)
+
+
+def handle_admin_add_service(chat_id, user_id):
+    """
+    عرض قائمة الأقسام لإضافة خدمة
+    Show categories list for adding service
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_add_service"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        categories = getAllCategories()
+        
+        if not categories:
+            send_message(chat_id, "❌ لا توجد أقسام. يجب إضافة قسم أولاً.")
+            return
+        
+        text = f"➕ <b>إضافة خدمة</b>\n\n"
+        text += f"اختر القسم الذي تريد إضافة الخدمة إليه:"
+        
+        keyboard = []
+        for cat in categories:
+            keyboard.append([{'text': f'📁 {cat}', 'callback_data': f'add_service_to_{cat}'}])
+        
+        keyboard.append([{'text': '🔙 إلغاء', 'callback_data': 'admin_services_management'}])
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        send_message(chat_id, text, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_add_service: {str(e)}")
+        logErrorWithDetails("admin_add_service_error", str(e), user_id)
+
+
+def handle_add_service_to_category(chat_id, user_id, category_name):
+    """
+    معالجة إضافة خدمة لقسم معين
+    Handle adding service to category
+    """
+    try:
+        if not validateAdminCommand(user_id, "add_service_to_category"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        user_states[user_id] = {
+            'state': 'WAITING_SERVICE_ID',
+            'category': category_name
+        }
+        
+        keyboard = [[{'text': '🔙 إلغاء', 'callback_data': 'admin_add_service'}]]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(
+            chat_id,
+            f"➕ <b>إضافة خدمة إلى: {category_name}</b>\n\n"
+            f"الآن أرسل <b>معرف الخدمة (Service ID)</b> من API:\n\n"
+            f"💡 مثال: 123",
+            reply_markup
+        )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_add_service_to_category: {str(e)}")
+        logErrorWithDetails("add_service_to_category_error", str(e), user_id)
+
+
+def handle_service_id_input(chat_id, user_id, text):
+    """
+    معالجة إدخال معرف الخدمة
+    Handle service ID input
+    """
+    try:
+        user_state = user_states.get(user_id, {})
+        
+        if user_state.get('state') != 'WAITING_SERVICE_ID':
+            send_message(chat_id, "❌ خطأ في الحالة.")
+            return
+        
+        try:
+            service_id = int(text.strip())
+        except ValueError:
+            send_message(chat_id, "❌ معرف الخدمة يجب أن يكون رقم.")
+            return
+        
+        # التحقق من وجود الخدمة في API
+        service_info = smm_api.get_service_by_id(service_id)
+        
+        if not service_info:
+            send_message(chat_id, f"❌ الخدمة {service_id} غير موجودة في API.\n\nتأكد من معرف الخدمة.")
+            return
+        
+        service_name = service_info.get('name', f'Service {service_id}')
+        
+        # حفظ service_id مؤقتاً
+        user_states[user_id]['service_id'] = service_id
+        user_states[user_id]['service_name'] = service_name
+        user_states[user_id]['state'] = 'WAITING_SERVICE_CONFIRM'
+        
+        category = user_state.get('category')
+        
+        keyboard = [
+            [{'text': '✅ تأكيد الإضافة', 'callback_data': f'confirm_add_service'}],
+            [{'text': '❌ إلغاء', 'callback_data': 'admin_add_service'}]
+        ]
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        send_message(
+            chat_id,
+            f"📋 <b>تأكيد إضافة الخدمة:</b>\n\n"
+            f"📁 <b>القسم:</b> {category}\n"
+            f"🆔 <b>Service ID:</b> <code>{service_id}</code>\n"
+            f"📝 <b>اسم الخدمة:</b> {service_name}\n\n"
+            f"هل تريد إضافة هذه الخدمة؟",
+            reply_markup
+        )
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_service_id_input: {str(e)}")
+        logErrorWithDetails("service_id_input_error", str(e), user_id)
+
+
+def handle_confirm_add_service(chat_id, user_id):
+    """
+    تأكيد إضافة الخدمة
+    Confirm service addition
+    """
+    try:
+        user_state = user_states.get(user_id, {})
+        
+        category = user_state.get('category')
+        service_id = user_state.get('service_id')
+        service_name = user_state.get('service_name')
+        
+        if not category or not service_id:
+            send_message(chat_id, "❌ خطأ في البيانات.")
+            return
+        
+        # مسح حالة الانتظار
+        if user_id in user_states:
+            del user_states[user_id]
+        
+        if addServiceToCategory(category, service_id, service_name):
+            keyboard = [[{'text': '🔙 عودة للإدارة', 'callback_data': 'admin_services_management'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(
+                chat_id,
+                f"✅ <b>تم إضافة الخدمة بنجاح!</b>\n\n"
+                f"📁 <b>القسم:</b> {category}\n"
+                f"🆔 <b>Service ID:</b> <code>{service_id}</code>\n"
+                f"📝 <b>الخدمة:</b> {service_name}",
+                reply_markup
+            )
+            
+            log_error(f"✅ Service {service_id} added to {category} by admin {user_id}")
+        else:
+            send_message(chat_id, "❌ فشل إضافة الخدمة. قد تكون موجودة بالفعل.")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_confirm_add_service: {str(e)}")
+        logErrorWithDetails("confirm_add_service_error", str(e), user_id)
+
+
+def handle_admin_delete_service(chat_id, user_id):
+    """
+    عرض قائمة الخدمات للحذف
+    Show services list for deletion
+    """
+    try:
+        if not validateAdminCommand(user_id, "admin_delete_service"):
+            send_message(chat_id, "❌ ليس لديك صلاحية.")
+            return
+        
+        all_services = getAllServicesFlat()
+        
+        if not all_services:
+            send_message(chat_id, "❌ لا توجد خدمات لحذفها.")
+            return
+        
+        text = f"🗑️ <b>حذف خدمة</b>\n\n"
+        text += f"اختر الخدمة التي تريد حذفها:\n\n"
+        
+        keyboard = []
+        for svc in all_services[:20]:  # عرض أول 20 خدمة
+            btn_text = f"🗑️ {svc['service_name'][:30]} (ID: {svc['service_id']})"
+            callback_data = f"confirm_delete_svc_{svc['category']}_{svc['service_id']}"
+            keyboard.append([{'text': btn_text, 'callback_data': callback_data}])
+        
+        if len(all_services) > 20:
+            text += f"(عرض أول 20 من {len(all_services)} خدمة)\n\n"
+        
+        keyboard.append([{'text': '🔙 إلغاء', 'callback_data': 'admin_services_management'}])
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        send_message(chat_id, text, reply_markup)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_delete_service: {str(e)}")
+        logErrorWithDetails("admin_delete_service_error", str(e), user_id)
+
+
+def handle_confirm_delete_service(chat_id, user_id, category_name, service_id):
+    """
+    تأكيد حذف خدمة
+    Confirm service deletion
+    """
+    try:
+        if deleteServiceFromCategory(category_name, service_id):
+            keyboard = [[{'text': '🔙 عودة للإدارة', 'callback_data': 'admin_services_management'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(
+                chat_id,
+                f"✅ <b>تم حذف الخدمة بنجاح!</b>\n\n"
+                f"🗑️ <b>القسم:</b> {category_name}\n"
+                f"🆔 <b>Service ID:</b> <code>{service_id}</code>",
+                reply_markup
+            )
+            
+            log_error(f"🗑️ Service {service_id} deleted from {category_name} by admin {user_id}")
+        else:
+            send_message(chat_id, f"❌ فشل حذف الخدمة {service_id}.")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_confirm_delete_service: {str(e)}")
+        logErrorWithDetails("confirm_delete_service_error", str(e), user_id)
 
 
 def handle_broadcast_command(chat_id, user_id):
