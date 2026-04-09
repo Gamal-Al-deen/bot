@@ -19,6 +19,104 @@ from functions import log_error
 app = Flask(__name__)
 
 
+def setup_bot_commands():
+    """
+    إعداد أوامر البوت الرسمية (Menu Button)
+    Setup official bot commands for Telegram Menu Button
+    
+    This uses Telegram Bot API setMyCommands to register commands
+    that appear in the Menu button next to the message input field.
+    
+    @return: bool - True إذا نجح الإعداد
+    """
+    try:
+        from config import ADMIN_ID
+        
+        log_error("\n" + "=" * 60)
+        log_error("📋 Setting up Bot Commands (Menu Button)...")
+        log_error("=" * 60)
+        
+        # 1️⃣ أوامر المستخدم - تظهر لجميع المستخدمين
+        user_commands = [
+            {"command": "start", "description": "تشغيل البوت"},
+            {"command": "balance", "description": "عرض رصيدك"},
+            {"command": "services", "description": "عرض الخدمات"},
+            {"command": "myaccount", "description": "عرض معلومات حسابك"}
+        ]
+        
+        log_error("👥 Setting user commands (visible to everyone)...")
+        user_response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setMyCommands",
+            json={"commands": user_commands},
+            timeout=10
+        )
+        
+        if user_response.status_code == 200:
+            user_result = user_response.json()
+            if user_result.get('ok'):
+                log_error(f"✅ User commands set successfully ({len(user_commands)} commands)")
+                for cmd in user_commands:
+                    log_error(f"   /{cmd['command']} - {cmd['description']}")
+            else:
+                log_error(f"❌ Failed to set user commands: {user_result}")
+        else:
+            log_error(f"❌ HTTP {user_response.status_code} error setting user commands")
+        
+        # 2️⃣ أوامر الأدمن - تظهر فقط للأدمن المحدد
+        admin_commands = [
+            {"command": "start", "description": "تشغيل البوت"},
+            {"command": "balance", "description": "عرض رصيدك"},
+            {"command": "services", "description": "عرض الخدمات"},
+            {"command": "myaccount", "description": "عرض معلومات حسابك"},
+            {"command": "adminpanel", "description": "لوحة الأدمن"},
+            {"command": "addbalance", "description": "إضافة رصيد"},
+            {"command": "removebalance", "description": "خصم رصيد"},
+            {"command": "setprice", "description": "تعديل التسعير"},
+            {"command": "setpercent", "description": "تعيين تسعير نسبي"},
+            {"command": "addcategory", "description": "إضافة قسم"},
+            {"command": "addservice", "description": "إضافة خدمة"},
+            {"command": "deleteservice", "description": "حذف خدمة"},
+            {"command": "deletecategory", "description": "حذف قسم"},
+            {"command": "broadcast", "description": "إرسال رسالة جماعية"},
+            {"command": "toggle_notifications", "description": "تشغيل/إيقاف الإشعارات"},
+            {"command": "setchannel", "description": "تحديد قناة النشر"}
+        ]
+        
+        log_error(f"\n👑 Setting admin commands (visible only to admin {ADMIN_ID})...")
+        admin_response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setMyCommands",
+            json={
+                "commands": admin_commands,
+                "scope": {
+                    "type": "chat",
+                    "chat_id": int(ADMIN_ID)
+                }
+            },
+            timeout=10
+        )
+        
+        if admin_response.status_code == 200:
+            admin_result = admin_response.json()
+            if admin_result.get('ok'):
+                log_error(f"✅ Admin commands set successfully ({len(admin_commands)} commands)")
+                log_error(f"   (Visible only to admin: {ADMIN_ID})")
+            else:
+                log_error(f"❌ Failed to set admin commands: {admin_result}")
+        else:
+            log_error(f"❌ HTTP {admin_response.status_code} error setting admin commands")
+        
+        log_error("=" * 60)
+        log_error("✅ Bot commands setup complete!")
+        log_error("💡 Menu button (📋) now appears next to message input")
+        log_error("=" * 60)
+        
+        return True
+    
+    except Exception as e:
+        log_error(f"❌ Critical error in setup_bot_commands: {type(e).__name__}: {str(e)}")
+        return False
+
+
 def setup_webhook():
     """
     إعداد Webhook تلقائياً عند بدء التشغيل
@@ -230,6 +328,15 @@ if __name__ == "__main__":
     
     log_error(f"📍 Port: {port}")
     log_error(f"🌐 Mode: Webhook (NOT Polling)")
+    
+    # ⚠️ إعداد أوامر البوت الرسمية (Menu Button)
+    log_error("\n📋 Setting up Bot Commands (Menu Button)...")
+    commands_success = setup_bot_commands()
+    
+    if commands_success:
+        log_error("\n✅ Bot commands setup successful!")
+    else:
+        log_error("\n⚠️  Bot commands setup failed, but bot will start anyway")
     
     # ⚠️ إعداد Webhook قبل بدء الخادم
     log_error("\n🔧 Initializing Webhook...")
