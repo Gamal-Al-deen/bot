@@ -49,6 +49,46 @@ def saveUsers(users_data):
         log_error(f"❌ خطأ في saveUsers: {str(e)}")
 
 
+def registerUser(user_id, first_name="مستخدم", username="لا يوجد"):
+    """
+    تسجيل مستخدم جديد في قاعدة البيانات
+    Register a new user in the database
+    
+    @param user_id: معرف المستخدم
+    @param first_name: الاسم الأول
+    @param username: اليوزرنيم
+    @return: bool - True إذا تم التسجيل بنجاح
+    """
+    try:
+        users = getUsers()
+        user_id_str = str(user_id)
+        
+        # إذا كان المستخدم موجوداً بالفعل، لا نقوم بإعادة الكتابة
+        if user_id_str in users:
+            log_error(f"ℹ️ المستخدم {user_id_str} موجود بالفعل - تحديث البيانات")
+            # تحديث بيانات المستخدم فقط إذا كان يريد تحديثها
+            users[user_id_str]["first_name"] = first_name
+            users[user_id_str]["username"] = username
+            saveUsers(users)
+            return False  # لم يكن مستخدم جديد
+        
+        # تسجيل مستخدم جديد مع حفظ جميع البيانات
+        users[user_id_str] = {
+            "balance": 0.0,
+            "first_name": first_name,
+            "username": username,
+            "registered_at": __import__('datetime').datetime.now().isoformat()
+        }
+        saveUsers(users)
+        
+        log_error(f"✅ تم تسجيل مستخدم جديد: {user_id_str} | Name: {first_name} | Username: {username}")
+        return True  # كان مستخدم جديد
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في registerUser: {str(e)}")
+        return False
+
+
 def getBalance(user_id):
     """
     الحصول على رصيد مستخدم معين
