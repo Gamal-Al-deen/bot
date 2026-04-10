@@ -9,4 +9,3 @@ flask==3.0.0
 
 # Supabase لقاعدة البيانات
 supabase==2.3.4
-postgrest==0.16.0
