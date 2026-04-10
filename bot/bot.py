@@ -42,9 +42,6 @@ from pricing_system import (
     getPricingInfo,
     calculateOrderTotalPrice
 )
-from database import (
-    create_order as db_create_order
-)
 from admin_system import (
     isAdmin, 
     validateAdminCommand,
@@ -775,18 +772,6 @@ def handle_order_confirmation(chat_id, user_id):
         order_id = smm_api.order(service_id, link, quantity)
         
         if order_id:
-            # Save order to Supabase
-            db_order_id = db_create_order(
-                user_id=user_id,
-                service_api_id=int(service_id),
-                original_price=price_info['original_price'],
-                final_price=final_price,
-                quantity=quantity,
-                link=link,
-                status='success',
-                order_api_id=order_id
-            )
-            
             text = f"✅ <b>تم تقديم طلبك بنجاح!</b>\n\n"
             text += f"🔢 معرف الطلب: {order_id}\n"
             text += f"🔖 الخدمة: {service_id}\n"
@@ -800,7 +785,7 @@ def handle_order_confirmation(chat_id, user_id):
             
             send_message(chat_id, text, reply_markup)
             logOrderOperation(user_id, order_id, service_id, quantity, final_price, "success")
-            log_error(f"✅ Order successful for user {user_id} - Order ID: {order_id} - DB ID: {db_order_id}")
+            log_error(f"✅ Order successful for user {user_id} - Order ID: {order_id}")
             
             # إرسال إشعار إلى القناة (في الخلفية - لا يؤثر على سرعة الطلب)
             try:

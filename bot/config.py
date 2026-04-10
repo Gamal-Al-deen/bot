@@ -60,4 +60,4 @@ SUPABASE_URL = "https://fjmhekbuhwjtwmwucrwc.supabase.co"  # مثال: https://x
 # ⚠️ ضع هنا مفتاح الخدمة من Supabase
 # ⚠️ Put your Supabase Service Role Key here
 # تجده في: Project Settings > API > service_role key (secret)
-SUPABASE_KEY = "sb_publishable_Xb32CM-jJdkwMgvlmW90aw_hE8EVaL2"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqbWhla2J1aHdqdHdtd3VjcndjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTc3MjMzMSwiZXhwIjoyMDkxMzQ4MzMxfQ.8S427ImdS_ETWeJco7lvWGY7MiM7c8KeEYht7zYQ_YQ"
