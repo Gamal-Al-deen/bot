@@ -42,6 +42,9 @@ from pricing_system import (
     getPricingInfo,
     calculateOrderTotalPrice
 )
+from database import (
+    get_all_users_paginated
+)
 from admin_system import (
     isAdmin, 
     validateAdminCommand,
@@ -249,6 +252,11 @@ def handle_callback_query(callback_query):
             handle_admin_set_channel(chat_id, user_id)
         elif data == 'admin_services_management':
             handle_admin_services_menu(chat_id, user_id)
+        elif data == 'admin_view_users':
+            handle_admin_view_users(chat_id, user_id, page=1)
+        elif data.startswith('admin_view_users_page_'):
+            page = int(data.replace('admin_view_users_page_', ''))
+            handle_admin_view_users(chat_id, user_id, page=page)
         elif data == 'admin_add_category':
             handle_admin_add_category(chat_id, user_id)
         elif data == 'admin_delete_category':
@@ -1373,6 +1381,7 @@ def handle_admin_panel(chat_id, user_id, first_name="أدمن"):
         # أزرار لوحة التحكم
         keyboard = [
             [{'text': '💰 إضافة رصيد', 'callback_data': 'admin_add_balance'}, {'text': '💸 خصم رصيد', 'callback_data': 'admin_remove_balance'}],
+            [{'text': '👥 عرض المستخدمين', 'callback_data': 'admin_view_users'}],
             [{'text': '📊 عرض التسعير', 'callback_data': 'admin_show_pricing'}],
             [{'text': '📢 رسالة جماعية', 'callback_data': 'admin_broadcast'}],
             [{'text': '🔔 إشعارات المستخدمين', 'callback_data': 'admin_notifications'}],
@@ -2036,3 +2045,97 @@ def handle_broadcast_message_input(chat_id, user_id, message_text):
     except Exception as e:
         log_error(f"❌ خطأ في handle_broadcast_message_input: {str(e)}")
         logErrorWithDetails("broadcast_message_error", str(e), user_id)
+
+
+# ========== عرض المستخدمين (Admin View Users) ==========
+
+def handle_admin_view_users(chat_id, user_id, page=1):
+    """
+    عرض قائمة المستخدمين مع pagination
+    Show users list with pagination
+    
+    @param chat_id: معرف المحادثة
+    @param user_id: معرف المستخدم
+    @param page: رقم الصفحة
+    """
+    try:
+        # فحص جذري للأدمن
+        if not validateAdminCommand(user_id, "admin_view_users"):
+            send_message(chat_id, "❌ ليس لديك صلاحية استخدام هذه الميزة.")
+            return
+        
+        log_error(f"👥 [ADMIN_VIEW_USERS] Admin {user_id} requested users list - Page {page}")
+        
+        # جلب المستخدمين من قاعدة البيانات
+        users_data = get_all_users_paginated(page=page, per_page=20)
+        
+        total_users = users_data['total']
+        users = users_data['users']
+        current_page = users_data['page']
+        total_pages = users_data['total_pages']
+        has_next = users_data['has_next']
+        has_prev = users_data['has_prev']
+        
+        if total_users == 0:
+            text = "👥 <b>المستخدمون</b>\n\n"
+            text += "❌ لا يوجد مستخدمون مسجلون حالياً."
+            
+            keyboard = [[{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}]]
+            reply_markup = build_inline_keyboard(keyboard)
+            
+            send_message(chat_id, text, reply_markup)
+            return
+        
+        # بناء نص قائمة المستخدمين
+        text = f"👥 <b>المستخدمون</b>\n\n"
+        text += f"📊 <b>إجمالي المستخدمين:</b> {total_users}\n"
+        text += f"📄 <b>الصفحة:</b> {current_page}/{total_pages}\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for idx, user in enumerate(users, 1):
+            user_id_val = user.get('user_id', 'N/A')
+            username = user.get('username', 'لا يوجد')
+            first_name = user.get('first_name', 'مستخدم')
+            balance = float(user.get('balance', 0.0))
+            
+            # تنسيق اليوزرنيم
+            if username and username != 'لا يوجد':
+                username_display = f"@{username}"
+            else:
+                username_display = "لا يوجد"
+            
+            text += f"{idx}. <b>ID:</b> <code>{user_id_val}</code>\n"
+            text += f"   👤 <b>الاسم:</b> {first_name}\n"
+            text += f"   📧 <b>اليوزرنيم:</b> {username_display}\n"
+            text += f"   💰 <b>الرصيد:</b> {balance:.6f}$\n"
+            text += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        # بناء أزرار Pagination
+        keyboard = []
+        
+        # أزرار التنقل بين الصفحات
+        nav_buttons = []
+        
+        if has_prev:
+            nav_buttons.append({'text': '⬅️ السابق', 'callback_data': f'admin_view_users_page_{current_page - 1}'})
+        
+        if has_next:
+            nav_buttons.append({'text': 'التالي ➡️', 'callback_data': f'admin_view_users_page_{current_page + 1}'})
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        # زر العودة للوحة الأدمن
+        keyboard.append([{'text': '🔙 عودة للوحة الأدمن', 'callback_data': 'admin_panel'}])
+        
+        reply_markup = build_inline_keyboard(keyboard)
+        
+        # إرسال الرسالة
+        send_message(chat_id, text, reply_markup)
+        
+        log_error(f"✅ [ADMIN_VIEW_USERS] Displayed {len(users)} users (Page {current_page}/{total_pages}) to admin {user_id}")
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في handle_admin_view_users: {str(e)}")
+        logErrorWithDetails("admin_view_users_error", str(e), user_id)
+        send_message(chat_id, "❌ حدث خطأ أثناء جلب قائمة المستخدمين.")

@@ -350,6 +350,72 @@ def get_all_user_ids() -> List[int]:
         return []
 
 
+def get_all_users_paginated(page: int = 1, per_page: int = 20) -> Dict[str, Any]:
+    """
+    Get all users with pagination
+    @param page: Page number (starts from 1)
+    @param per_page: Number of users per page
+    @return: Dict with users list, total count, and pagination info
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return {'users': [], 'total': 0, 'page': page, 'per_page': per_page, 'total_pages': 0}
+        
+        log_error(f"👥 [GET_USERS] Fetching page {page} with {per_page} users per page")
+        
+        # Get total count
+        count_result = client.table('users').select('user_id', count='exact').execute()
+        total_users = count_result.count if count_result.count is not None else 0
+        
+        # Calculate pagination
+        total_pages = (total_users + per_page - 1) // per_page  # Ceiling division
+        offset = (page - 1) * per_page
+        
+        # Validate page number
+        if page < 1:
+            page = 1
+        elif page > total_pages and total_pages > 0:
+            page = total_pages
+        
+        # Fetch users with pagination
+        result = client.table('users').select(
+            'user_id, username, first_name, balance, created_at'
+        ).order(
+            'created_at', desc=True
+        ).range(
+            offset, offset + per_page - 1
+        ).execute()
+        
+        users = result.data if result.data else []
+        
+        log_error(f"✅ [GET_USERS] Retrieved {len(users)} users (Page {page}/{total_pages}, Total: {total_users})")
+        
+        return {
+            'users': users,
+            'total': total_users,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages,
+            'has_next': page < total_pages,
+            'has_prev': page > 1
+        }
+        
+    except Exception as e:
+        log_error(f"❌ [GET_USERS] Error: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [GET_USERS] Full traceback:\n{traceback.format_exc()}")
+        return {
+            'users': [],
+            'total': 0,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': 0,
+            'has_next': False,
+            'has_prev': False
+        }
+
+
 def user_exists(user_id: int) -> bool:
     """
     Check if user exists
