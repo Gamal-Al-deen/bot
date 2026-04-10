@@ -7,5 +7,6 @@ requests==2.31.0
 # Flask لخادم Webhook (مطلوب لـ Render)
 flask==3.0.0
 
-# لا حاجة لمكتبات إضافية
-# No additional libraries needed
+# Supabase لقاعدة البيانات
+supabase==2.3.4
+postgrest==0.16.0

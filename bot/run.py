@@ -13,6 +13,7 @@ import requests
 from config import BOT_TOKEN
 from bot import handle_update
 from functions import log_error
+from database import init_db
 
 
 # إنشاء تطبيق Flask
@@ -39,8 +40,8 @@ def setup_bot_commands():
         # 1️⃣ أوامر المستخدم - تظهر لجميع المستخدمين
         user_commands = [
             {"command": "start", "description": "تشغيل البوت"},
-            {"command": "balance", "description": "عرض رصيدك"},
             {"command": "services", "description": "عرض الخدمات"},
+            {"command": "balance", "description": "عرض رصيدك"},
             {"command": "myaccount", "description": "عرض معلومات حسابك"}
         ]
         
@@ -322,6 +323,18 @@ if __name__ == "__main__":
     log_error("=" * 60)
     log_error("🚀 Starting SMM Bot in Webhook Mode...")
     log_error("=" * 60)
+    
+    # ⚠️ تهيئة قاعدة بيانات Supabase
+    log_error("\n🗄️ Initializing Supabase Database...")
+    db_success = init_db()
+    
+    if db_success:
+        log_error("\n✅ Supabase connected successfully!")
+        log_error("🎯 Database system is ready!")
+    else:
+        log_error("\n⚠️  Supabase connection failed!")
+        log_error("💡 Bot will start but database operations will fail.")
+        log_error("💡 Please check your SUPABASE_URL and SUPABASE_KEY in config.py")
     
     # الحصول على المنفذ من متغيرات البيئة
     port = int(os.environ.get("PORT", 10000))

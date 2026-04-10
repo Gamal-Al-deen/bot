@@ -48,3 +48,16 @@ STATE_WAITING_ADMIN_USER_ID = "WAITING_ADMIN_USER_ID"
 
 # ⚠️ تأكد من تعيين القيم أعلاه بشكل صحيح قبل تشغيل البوت
 # ⚠️ Make sure to set the values above correctly before running the bot
+
+# ============================================
+# Supabase Configuration
+# ============================================
+# ⚠️ ضع هنا رابط Supabase الخاص بك
+# ⚠️ Put your Supabase URL here
+# تجده في: Project Settings > API > Project URL
+SUPABASE_URL = "https://fjmhekbuhwjtwmwucrwc.supabase.co"  # مثال: https://xxxxx.supabase.co
+
+# ⚠️ ضع هنا مفتاح الخدمة من Supabase
+# ⚠️ Put your Supabase Service Role Key here
+# تجده في: Project Settings > API > service_role key (secret)
+SUPABASE_KEY = "sb_publishable_Xb32CM-jJdkwMgvlmW90aw_hE8EVaL2"

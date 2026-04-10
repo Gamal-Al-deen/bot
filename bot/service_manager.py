@@ -1,56 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-نظام إدارة الخدمات والأقسام
-Service & Category Management System
+نظام إدارة الخدمات والأقسام - Supabase
+Service & Category Management System - Supabase Version
 """
 
-import json
-import os
+from database import (
+    create_category,
+    get_all_categories,
+    get_category_by_name,
+    delete_category,
+    add_service,
+    get_services_by_category,
+    delete_service,
+    get_all_services_flat,
+    get_service_by_api_id,
+    set_pricing_rule
+)
 from functions import log_error
-
-# مسار ملف بيانات الخدمات
-SERVICES_FILE = "services_config.json"
-
-
-def getServicesConfig():
-    """
-    الحصول على إعدادات الخدمات والأقسام
-    Get services and categories configuration
-    
-    @return: dict - إعدادات الخدمات
-    """
-    try:
-        if os.path.exists(SERVICES_FILE):
-            with open(SERVICES_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config
-        else:
-            # إعدادات افتراضية - بدون أقسام أو خدمات
-            default_config = {
-                "categories": [],
-                "services": {}
-            }
-            saveServicesConfig(default_config)
-            return default_config
-    
-    except Exception as e:
-        log_error(f"❌ خطأ في getServicesConfig: {str(e)}")
-        return {"categories": [], "services": {}}
-
-
-def saveServicesConfig(config):
-    """
-    حفظ إعدادات الخدمات والأقسام
-    Save services and categories configuration
-    
-    @param config: dict - إعدادات الخدمات
-    """
-    try:
-        with open(SERVICES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
-    
-    except Exception as e:
-        log_error(f"❌ خطأ في saveServicesConfig: {str(e)}")
 
 
 def getAllCategories():
@@ -61,8 +27,9 @@ def getAllCategories():
     @return: list - قائمة الأقسام
     """
     try:
-        config = getServicesConfig()
-        return config.get("categories", [])
+        categories = get_all_categories()
+        # Return only category names for backward compatibility
+        return [cat['name'] for cat in categories]
     
     except Exception as e:
         log_error(f"❌ خطأ في getAllCategories: {str(e)}")
@@ -78,24 +45,7 @@ def addCategory(category_name):
     @return: bool - True إذا تم الإضافة بنجاح
     """
     try:
-        config = getServicesConfig()
-        categories = config.get("categories", [])
-        
-        # التحقق من عدم وجود القسم مسبقاً
-        if category_name in categories:
-            log_error(f"⚠️ القسم '{category_name}' موجود بالفعل")
-            return False
-        
-        categories.append(category_name)
-        config["categories"] = categories
-        
-        # تهيئة القسم في services إذا لم يكن موجوداً
-        if category_name not in config["services"]:
-            config["services"][category_name] = []
-        
-        saveServicesConfig(config)
-        log_error(f"✅ تم إضافة قسم جديد: {category_name}")
-        return True
+        return create_category(category_name)
     
     except Exception as e:
         log_error(f"❌ خطأ في addCategory: {str(e)}")
@@ -111,25 +61,13 @@ def deleteCategory(category_name):
     @return: bool - True إذا تم الحذف بنجاح
     """
     try:
-        config = getServicesConfig()
-        categories = config.get("categories", [])
+        category = get_category_by_name(category_name)
         
-        # التحقق من وجود القسم
-        if category_name not in categories:
+        if not category:
             log_error(f"⚠️ القسم '{category_name}' غير موجود")
             return False
         
-        # حذف القسم من القائمة
-        categories.remove(category_name)
-        config["categories"] = categories
-        
-        # حذف خدمات القسم
-        if category_name in config["services"]:
-            del config["services"][category_name]
-        
-        saveServicesConfig(config)
-        log_error(f"✅ تم حذف القسم: {category_name}")
-        return True
+        return delete_category(category['id'])
     
     except Exception as e:
         log_error(f"❌ خطأ في deleteCategory: {str(e)}")
@@ -147,34 +85,20 @@ def addServiceToCategory(category_name, service_id, service_name):
     @return: bool - True إذا تم الإضافة بنجاح
     """
     try:
-        config = getServicesConfig()
-        categories = config.get("categories", [])
+        category = get_category_by_name(category_name)
         
-        # التحقق من وجود القسم
-        if category_name not in categories:
+        if not category:
             log_error(f"⚠️ القسم '{category_name}' غير موجود")
             return False
         
-        # تهيئة القسم إذا لم يكن موجوداً في services
-        if category_name not in config["services"]:
-            config["services"][category_name] = []
+        # Add service
+        service_db_id = add_service(category['id'], service_id)
         
-        services_list = config["services"][category_name]
+        if service_db_id is None:
+            return False
         
-        # التحقق من عدم وجود الخدمة مسبقاً
-        for service in services_list:
-            if str(service.get("service_id")) == str(service_id):
-                log_error(f"⚠️ الخدمة {service_id} موجودة بالفعل في القسم '{category_name}'")
-                return False
-        
-        # إضافة الخدمة
-        services_list.append({
-            "service_id": service_id,
-            "service_name": service_name
-        })
-        
-        config["services"][category_name] = services_list
-        saveServicesConfig(config)
+        # Set default pricing (percentage 50%)
+        set_pricing_rule(service_db_id, 'percentage', percentage_value=50.0)
         
         log_error(f"✅ تم إضافة خدمة {service_id} ({service_name}) إلى القسم '{category_name}'")
         return True
@@ -194,28 +118,15 @@ def deleteServiceFromCategory(category_name, service_id):
     @return: bool - True إذا تم الحذف بنجاح
     """
     try:
-        config = getServicesConfig()
+        # Find the service
+        services = get_all_services_flat()
         
-        # التحقق من وجود القسم
-        if category_name not in config["services"]:
-            log_error(f"⚠️ القسم '{category_name}' غير موجود")
-            return False
+        for service in services:
+            if service['category_name'] == category_name and service['service_api_id'] == service_id:
+                return delete_service(service['id'])
         
-        services_list = config["services"][category_name]
-        
-        # البحث عن الخدمة وحذفها
-        original_count = len(services_list)
-        services_list = [s for s in services_list if str(s.get("service_id")) != str(service_id)]
-        
-        if len(services_list) == original_count:
-            log_error(f"⚠️ الخدمة {service_id} غير موجودة في القسم '{category_name}'")
-            return False
-        
-        config["services"][category_name] = services_list
-        saveServicesConfig(config)
-        
-        log_error(f"✅ تم حذف الخدمة {service_id} من القسم '{category_name}'")
-        return True
+        log_error(f"⚠️ الخدمة {service_id} غير موجودة في القسم '{category_name}'")
+        return False
     
     except Exception as e:
         log_error(f"❌ خطأ في deleteServiceFromCategory: {str(e)}")
@@ -231,8 +142,22 @@ def getServicesByCategory(category_name):
     @return: list - قائمة الخدمات
     """
     try:
-        config = getServicesConfig()
-        return config.get("services", {}).get(category_name, [])
+        category = get_category_by_name(category_name)
+        
+        if not category:
+            return []
+        
+        services = get_services_by_category(category['id'])
+        
+        # Format for backward compatibility
+        result = []
+        for service in services:
+            result.append({
+                'service_id': service['service_api_id'],
+                'service_name': f"Service {service['service_api_id']}"  # Name will be fetched from API
+            })
+        
+        return result
     
     except Exception as e:
         log_error(f"❌ خطأ في getServicesByCategory: {str(e)}")
@@ -247,19 +172,17 @@ def getAllServicesFlat():
     @return: list - قائمة جميع الخدمات مع أسماء أقسامها
     """
     try:
-        config = getServicesConfig()
-        services_dict = config.get("services", {})
+        services = get_all_services_flat()
         
-        all_services = []
-        for category_name, services_list in services_dict.items():
-            for service in services_list:
-                all_services.append({
-                    "category": category_name,
-                    "service_id": service.get("service_id"),
-                    "service_name": service.get("service_name")
-                })
+        result = []
+        for service in services:
+            result.append({
+                "category": service['category_name'],
+                "service_id": service['service_api_id'],
+                "service_name": f"Service {service['service_api_id']}"
+            })
         
-        return all_services
+        return result
     
     except Exception as e:
         log_error(f"❌ خطأ في getAllServicesFlat: {str(e)}")
@@ -275,17 +198,14 @@ def getServiceInfo(service_id):
     @return: dict - معلومات الخدمة أو None
     """
     try:
-        config = getServicesConfig()
-        services_dict = config.get("services", {})
+        service = get_service_by_api_id(service_id)
         
-        for category_name, services_list in services_dict.items():
-            for service in services_list:
-                if str(service.get("service_id")) == str(service_id):
-                    return {
-                        "category": category_name,
-                        "service_id": service.get("service_id"),
-                        "service_name": service.get("service_name")
-                    }
+        if service:
+            return {
+                "category": service['category_name'],
+                "service_id": service['service_api_id'],
+                "service_name": f"Service {service['service_api_id']}"
+            }
         
         return None
     
