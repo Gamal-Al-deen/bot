@@ -312,6 +312,16 @@ def set_balance(user_id: int, amount: float) -> bool:
         return False
 
 
+def update_user_balance(user_id: int, new_balance: float) -> bool:
+    """
+    Update user balance to a new amount (alias for set_balance)
+    @param user_id: User ID
+    @param new_balance: New balance amount
+    @return: True if successful
+    """
+    return set_balance(user_id, new_balance)
+
+
 def get_all_users_count() -> int:
     """
     Get total users count
