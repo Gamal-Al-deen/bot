@@ -2,72 +2,63 @@
 """
 نظام إدارة الخدمات والأقسام
 Service & Category Management System
-
-✅ Updated to use Supabase Database - No JSON!
 """
 
+import json
+import os
 from functions import log_error
-from database import (
-    add_category as db_add_category,
-    get_all_categories as db_get_all_categories,
-    delete_category as db_delete_category,
-    add_service as db_add_service,
-    get_services_by_category as db_get_services_by_category,
-    delete_service as db_delete_service
-)
+
+# مسار ملف بيانات الخدمات
+SERVICES_FILE = "services_config.json"
 
 
 def getServicesConfig():
     """
-    الحصول على إعدادات الخدمات والأقسام من Supabase
-    Get services and categories configuration from Supabase
+    الحصول على إعدادات الخدمات والأقسام
+    Get services and categories configuration
     
     @return: dict - إعدادات الخدمات
     """
     try:
-        categories = db_get_all_categories()
-        
-        # Build config structure
-        config = {
-            "categories": [cat['name'] for cat in categories],
-            "services": {},
-            "categories_data": categories  # Keep full data with IDs
-        }
-        
-        # Get services for each category
-        for cat in categories:
-            cat_id = cat['id']
-            cat_name = cat['name']
-            services = db_get_services_by_category(cat_id)
-            config["services"][cat_name] = services
-        
-        log_error(f"📋 [GET_SERVICES_CONFIG] Retrieved {len(categories)} categories with services")
-        return config
+        if os.path.exists(SERVICES_FILE):
+            with open(SERVICES_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config
+        else:
+            # إعدادات افتراضية - بدون أقسام أو خدمات
+            default_config = {
+                "categories": [],
+                "services": {}
+            }
+            saveServicesConfig(default_config)
+            return default_config
     
     except Exception as e:
         log_error(f"❌ خطأ في getServicesConfig: {str(e)}")
-        import traceback
-        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
-        return {"categories": [], "services": {}, "categories_data": []}
+        return {"categories": [], "services": {}}
 
 
 def saveServicesConfig(config):
     """
     حفظ إعدادات الخدمات والأقسام
-    NOTE: This is deprecated - data is saved directly via addCategory/addService
+    Save services and categories configuration
     
     @param config: dict - إعدادات الخدمات
     """
-    log_error("⚠️ [DEPRECATED] saveServicesConfig called - data should be saved directly to Supabase")
-    return False
+    try:
+        with open(SERVICES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في saveServicesConfig: {str(e)}")
 
 
 def getAllCategories():
     """
-    الحصول على جميع الأقسام من Supabase
-    Get all categories from Supabase
+    الحصول على جميع الأقسام
+    Get all categories
     
-    @return: list - قائمة الأقسام (أسماء فقط)
+    @return: list - قائمة الأقسام
     """
     try:
         config = getServicesConfig()
@@ -78,173 +69,156 @@ def getAllCategories():
         return []
 
 
-def getAllCategoriesData():
-    """
-    الحصول على جميع الأقسام مع البيانات الكاملة (IDs)
-    Get all categories with full data including IDs
-    
-    @return: list - قائمة الأقسام (بيانات كاملة)
-    """
-    try:
-        config = getServicesConfig()
-        return config.get("categories_data", [])
-    
-    except Exception as e:
-        log_error(f"❌ خطأ في getAllCategoriesData: {str(e)}")
-        return []
-
-
 def addCategory(category_name):
     """
-    إضافة قسم جديد إلى Supabase
-    Add a new category to Supabase
+    إضافة قسم جديد
+    Add a new category
     
     @param category_name: اسم القسم
     @return: bool - True إذا تم الإضافة بنجاح
     """
     try:
-        success = db_add_category(category_name)
+        config = getServicesConfig()
+        categories = config.get("categories", [])
         
-        if success:
-            log_error(f"✅ تم إضافة قسم جديد إلى Supabase: {category_name}")
-        else:
-            log_error(f"❌ فشل في إضافة القسم: {category_name}")
+        # التحقق من عدم وجود القسم مسبقاً
+        if category_name in categories:
+            log_error(f"⚠️ القسم '{category_name}' موجود بالفعل")
+            return False
         
-        return success
+        categories.append(category_name)
+        config["categories"] = categories
+        
+        # تهيئة القسم في services إذا لم يكن موجوداً
+        if category_name not in config["services"]:
+            config["services"][category_name] = []
+        
+        saveServicesConfig(config)
+        log_error(f"✅ تم إضافة قسم جديد: {category_name}")
+        return True
     
     except Exception as e:
         log_error(f"❌ خطأ في addCategory: {str(e)}")
-        import traceback
-        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
         return False
 
 
 def deleteCategory(category_name):
     """
-    حذف قسم من Supabase
-    Delete a category from Supabase
+    حذف قسم وجميع خدماته
+    Delete a category and all its services
     
     @param category_name: اسم القسم
     @return: bool - True إذا تم الحذف بنجاح
     """
     try:
-        # Get category ID first
-        categories_data = getAllCategoriesData()
-        category_id = None
+        config = getServicesConfig()
+        categories = config.get("categories", [])
         
-        for cat in categories_data:
-            if cat['name'] == category_name:
-                category_id = cat['id']
-                break
-        
-        if not category_id:
-            log_error(f"❌ القسم '{category_name}' غير موجود")
+        # التحقق من وجود القسم
+        if category_name not in categories:
+            log_error(f"⚠️ القسم '{category_name}' غير موجود")
             return False
         
-        success = db_delete_category(category_id)
+        # حذف القسم من القائمة
+        categories.remove(category_name)
+        config["categories"] = categories
         
-        if success:
-            log_error(f"✅ تم حذف القسم: {category_name}")
-        else:
-            log_error(f"❌ فشل في حذف القسم: {category_name}")
+        # حذف خدمات القسم
+        if category_name in config["services"]:
+            del config["services"][category_name]
         
-        return success
+        saveServicesConfig(config)
+        log_error(f"✅ تم حذف القسم: {category_name}")
+        return True
     
     except Exception as e:
         log_error(f"❌ خطأ في deleteCategory: {str(e)}")
-        import traceback
-        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
         return False
 
 
-def addService(category_name, service_api_id):
+def addServiceToCategory(category_name, service_id, service_name):
     """
-    إضافة خدمة جديدة إلى Supabase
-    Add a new service to Supabase
+    إضافة خدمة إلى قسم معين
+    Add a service to a specific category
     
     @param category_name: اسم القسم
-    @param service_api_id: معرف الخدمة من API
+    @param service_id: معرف الخدمة من API
+    @param service_name: اسم الخدمة
     @return: bool - True إذا تم الإضافة بنجاح
     """
     try:
-        # Get category ID first
-        categories_data = getAllCategoriesData()
-        category_id = None
+        config = getServicesConfig()
+        categories = config.get("categories", [])
         
-        for cat in categories_data:
-            if cat['name'] == category_name:
-                category_id = cat['id']
-                break
-        
-        if not category_id:
-            log_error(f"❌ القسم '{category_name}' غير موجود")
+        # التحقق من وجود القسم
+        if category_name not in categories:
+            log_error(f"⚠️ القسم '{category_name}' غير موجود")
             return False
         
-        success = db_add_service(category_id, service_api_id)
+        # تهيئة القسم إذا لم يكن موجوداً في services
+        if category_name not in config["services"]:
+            config["services"][category_name] = []
         
-        if success:
-            log_error(f"✅ تم إضافة خدمة {service_api_id} إلى القسم '{category_name}' في Supabase")
-        else:
-            log_error(f"❌ فشل في إضافة الخدمة {service_api_id}")
+        services_list = config["services"][category_name]
         
-        return success
+        # التحقق من عدم وجود الخدمة مسبقاً
+        for service in services_list:
+            if str(service.get("service_id")) == str(service_id):
+                log_error(f"⚠️ الخدمة {service_id} موجودة بالفعل في القسم '{category_name}'")
+                return False
+        
+        # إضافة الخدمة
+        services_list.append({
+            "service_id": service_id,
+            "service_name": service_name
+        })
+        
+        config["services"][category_name] = services_list
+        saveServicesConfig(config)
+        
+        log_error(f"✅ تم إضافة خدمة {service_id} ({service_name}) إلى القسم '{category_name}'")
+        return True
     
     except Exception as e:
-        log_error(f"❌ خطأ في addService: {str(e)}")
-        import traceback
-        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+        log_error(f"❌ خطأ في addServiceToCategory: {str(e)}")
         return False
 
 
-def deleteService(category_name, service_api_id):
+def deleteServiceFromCategory(category_name, service_id):
     """
-    حذف خدمة من Supabase
-    Delete a service from Supabase
+    حذف خدمة من قسم معين
+    Delete a service from a specific category
     
     @param category_name: اسم القسم
-    @param service_api_id: معرف الخدمة من API
+    @param service_id: معرف الخدمة
     @return: bool - True إذا تم الحذف بنجاح
     """
     try:
-        # Get category ID first
-        categories_data = getAllCategoriesData()
-        category_id = None
+        config = getServicesConfig()
         
-        for cat in categories_data:
-            if cat['name'] == category_name:
-                category_id = cat['id']
-                break
-        
-        if not category_id:
-            log_error(f"❌ القسم '{category_name}' غير موجود")
+        # التحقق من وجود القسم
+        if category_name not in config["services"]:
+            log_error(f"⚠️ القسم '{category_name}' غير موجود")
             return False
         
-        # Get services to find the service ID
-        services = db_get_services_by_category(category_id)
-        service_id = None
+        services_list = config["services"][category_name]
         
-        for svc in services:
-            if svc['service_api_id'] == service_api_id:
-                service_id = svc['id']
-                break
+        # البحث عن الخدمة وحذفها
+        original_count = len(services_list)
+        services_list = [s for s in services_list if str(s.get("service_id")) != str(service_id)]
         
-        if not service_id:
-            log_error(f"❌ الخدمة {service_api_id} غير موجودة في القسم '{category_name}'")
+        if len(services_list) == original_count:
+            log_error(f"⚠️ الخدمة {service_id} غير موجودة في القسم '{category_name}'")
             return False
         
-        success = db_delete_service(service_id)
+        config["services"][category_name] = services_list
+        saveServicesConfig(config)
         
-        if success:
-            log_error(f"✅ تم حذف الخدمة {service_api_id} من القسم '{category_name}'")
-        else:
-            log_error(f"❌ فشل في حذف الخدمة {service_api_id}")
-        
-        return success
+        log_error(f"✅ تم حذف الخدمة {service_id} من القسم '{category_name}'")
+        return True
     
     except Exception as e:
-        log_error(f"❌ خطأ في deleteService: {str(e)}")
-        import traceback
-        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+        log_error(f"❌ خطأ في deleteServiceFromCategory: {str(e)}")
         return False
 
 
@@ -263,3 +237,58 @@ def getServicesByCategory(category_name):
     except Exception as e:
         log_error(f"❌ خطأ في getServicesByCategory: {str(e)}")
         return []
+
+
+def getAllServicesFlat():
+    """
+    الحصول على جميع الخدمات في قائمة مسطحة
+    Get all services in a flat list
+    
+    @return: list - قائمة جميع الخدمات مع أسماء أقسامها
+    """
+    try:
+        config = getServicesConfig()
+        services_dict = config.get("services", {})
+        
+        all_services = []
+        for category_name, services_list in services_dict.items():
+            for service in services_list:
+                all_services.append({
+                    "category": category_name,
+                    "service_id": service.get("service_id"),
+                    "service_name": service.get("service_name")
+                })
+        
+        return all_services
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getAllServicesFlat: {str(e)}")
+        return []
+
+
+def getServiceInfo(service_id):
+    """
+    الحصول على معلومات خدمة معينة
+    Get information about a specific service
+    
+    @param service_id: معرف الخدمة
+    @return: dict - معلومات الخدمة أو None
+    """
+    try:
+        config = getServicesConfig()
+        services_dict = config.get("services", {})
+        
+        for category_name, services_list in services_dict.items():
+            for service in services_list:
+                if str(service.get("service_id")) == str(service_id):
+                    return {
+                        "category": category_name,
+                        "service_id": service.get("service_id"),
+                        "service_name": service.get("service_name")
+                    }
+        
+        return None
+    
+    except Exception as e:
+        log_error(f"❌ خطأ في getServiceInfo: {str(e)}")
+        return None
