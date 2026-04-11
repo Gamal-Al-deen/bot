@@ -64,34 +64,30 @@ def init_db() -> bool:
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
         log_error("✅ Supabase client created successfully")
         
-        # Test connection with a simple query
+        # Test connection (settings أولاً، ثم users إن فشل الأول)
         log_error("🧪 Testing database connection...")
-        try:
-            test_query = supabase_client.table('settings').select('key').limit(1).execute()
-            log_error(f"📊 Test query response: {test_query}")
-            log_error(f"📊 Data returned: {test_query.data}")
-            log_error(f"📊 Has error attribute: {hasattr(test_query, 'error')}")
-            
-            if hasattr(test_query, 'error') and test_query.error:
-                log_error(f"❌ Database query error: {test_query.error}")
-                return False
-            
-            log_error("✅ Database connection test PASSED!")
-            log_error("=" * 60)
-            log_error("🎉 DATABASE INITIALIZATION COMPLETED SUCCESSFULLY")
-            log_error("=" * 60)
-            return True
-            
-        except Exception as query_error:
-            log_error(f"❌ Database query failed: {type(query_error).__name__}")
-            log_error(f"❌ Error details: {str(query_error)}")
-            
-            # Check if it's an RLS issue
-            if "row-level security" in str(query_error).lower() or "RLS" in str(query_error).upper():
-                log_error("⚠️ This appears to be an RLS (Row Level Security) issue")
-                log_error("💡 Make sure you're using service_role key, not anon key")
-            
-            return False
+        last_err = None
+        for probe_table in ('settings', 'users'):
+            try:
+                test_query = supabase_client.table(probe_table).select('*').limit(1).execute()
+                log_error(f"📊 Test query on '{probe_table}': rows={len(test_query.data) if test_query.data else 0}")
+                if hasattr(test_query, 'error') and test_query.error:
+                    log_error(f"❌ Database query error: {test_query.error}")
+                    return False
+                log_error(f"✅ Database connection test PASSED (via '{probe_table}')")
+                log_error("=" * 60)
+                log_error("🎉 DATABASE INITIALIZATION COMPLETED SUCCESSFULLY")
+                log_error("=" * 60)
+                return True
+            except Exception as probe_exc:
+                last_err = probe_exc
+                log_error(f"⚠️ Probe on '{probe_table}' failed: {type(probe_exc).__name__}: {str(probe_exc)[:200]}")
+                continue
+        log_error(f"❌ Database query failed on all probe tables. Last error: {last_err}")
+        if last_err and ("row-level security" in str(last_err).lower() or "RLS" in str(last_err).upper()):
+            log_error("⚠️ This appears to be an RLS (Row Level Security) issue")
+            log_error("💡 Make sure you're using service_role key, not anon key")
+        return False
             
     except Exception as e:
         log_error(f"❌ CRITICAL ERROR in init_db: {type(e).__name__}")
@@ -110,6 +106,61 @@ def get_supabase_client() -> Optional[Client]:
         if not init_db():
             return None
     return supabase_client
+
+
+# =====================================================
+# SETTINGS (جدول settings — تخزين دائم في Supabase)
+# =====================================================
+
+def get_setting(key: str, default: str = "") -> str:
+    """قراءة قيمة من جدول settings."""
+    try:
+        client = get_supabase_client()
+        if not client:
+            log_error(f"❌ [SETTINGS] get_setting: no client for key={key!r}")
+            return default
+        result = client.table("settings").select("value").eq("key", key).limit(1).execute()
+        if result.data and len(result.data) > 0:
+            return str(result.data[0].get("value", default))
+        return default
+    except Exception as e:
+        log_error(f"❌ [SETTINGS] get_setting({key!r}): {type(e).__name__}: {str(e)}")
+        return default
+
+
+def set_setting(key: str, value: str) -> bool:
+    """كتابة أو تحديث قيمة في جدول settings."""
+    try:
+        client = get_supabase_client()
+        if not client:
+            log_error(f"❌ [SETTINGS] set_setting: no client for key={key!r}")
+            return False
+        existing = client.table("settings").select("key").eq("key", key).limit(1).execute()
+        val = str(value)
+        if existing.data:
+            client.table("settings").update({"value": val}).eq("key", key).execute()
+        else:
+            client.table("settings").insert({"key": key, "value": val}).execute()
+        log_error(f"✅ [SETTINGS] set key={key!r}")
+        return True
+    except Exception as e:
+        log_error(f"❌ [SETTINGS] set_setting({key!r}): {type(e).__name__}: {str(e)}")
+        return False
+
+
+def delete_setting(key: str) -> bool:
+    """حذف مفتاح من جدول settings."""
+    try:
+        client = get_supabase_client()
+        if not client:
+            log_error(f"❌ [SETTINGS] delete_setting: no client for key={key!r}")
+            return False
+        client.table("settings").delete().eq("key", key).execute()
+        log_error(f"✅ [SETTINGS] deleted key={key!r}")
+        return True
+    except Exception as e:
+        log_error(f"❌ [SETTINGS] delete_setting({key!r}): {type(e).__name__}: {str(e)}")
+        return False
 
 
 # =====================================================
@@ -148,7 +199,7 @@ def create_user(user_id: int, username: str = "لا يوجد", first_name: str =
             log_error(f"✅ [CREATE_USER] User info updated successfully")
             return False  # Not a new user
         
-        # Create new user
+        # Create new user (مع .select() لضمان إرجاع الصف حتى لو كان الاستجابة minimal)
         log_error(f"➕ [CREATE_USER] Inserting new user {user_id}...")
         user_data = {
             'user_id': user_id,
@@ -158,25 +209,41 @@ def create_user(user_id: int, username: str = "لا يوجد", first_name: str =
         }
         log_error(f"📦 [CREATE_USER] Data to insert: {user_data}")
         
-        insert_result = client.table('users').insert(user_data).execute()
+        insert_result = client.table('users').insert(user_data).select('user_id').execute()
         
-        log_error(f"📊 [CREATE_USER] Insert result: {insert_result}")
-        log_error(f"📊 [CREATE_USER] Insert data: {insert_result.data}")
+        log_error(f"📊 [CREATE_USER] Insert result data: {insert_result.data}")
         
-        # Check for errors
         if hasattr(insert_result, 'error') and insert_result.error:
             log_error(f"❌ [CREATE_USER] Insert error: {insert_result.error}")
             return False
         
         if insert_result.data:
             log_error(f"✅ [CREATE_USER] User {user_id} created successfully!")
-            log_error(f"✅ [CREATE_USER] Database returned: {insert_result.data[0]}")
             return True
-        else:
-            log_error(f"❌ [CREATE_USER] No data returned from insert")
-            return False
+        
+        verify = client.table('users').select('user_id').eq('user_id', user_id).limit(1).execute()
+        if verify.data:
+            log_error(f"✅ [CREATE_USER] User {user_id} present after insert (verified by SELECT)")
+            return True
+        
+        log_error(f"❌ [CREATE_USER] Insert did not persist user {user_id}")
+        return False
         
     except Exception as e:
+        err = str(e).lower()
+        if 'duplicate' in err or 'unique' in err or 'already exists' in err:
+            log_error(f"ℹ️ [CREATE_USER] Race or duplicate for {user_id}, falling back to update")
+            try:
+                client = get_supabase_client()
+                if client:
+                    client.table('users').update({
+                        'username': username,
+                        'first_name': first_name
+                    }).eq('user_id', user_id).execute()
+                return False
+            except Exception as inner:
+                log_error(f"❌ [CREATE_USER] Fallback update failed: {inner}")
+                return False
         log_error(f"❌ [CREATE_USER] EXCEPTION: {type(e).__name__}")
         log_error(f"❌ [CREATE_USER] Error message: {str(e)}")
         import traceback
@@ -467,6 +534,224 @@ def user_exists(user_id: int) -> bool:
 
 
 # =====================================================
+# CATEGORIES & BOT SERVICES (عرض الخدمات في البوت — Supabase فقط)
+# =====================================================
+
+def _normalize_api_service_id(service_id) -> int:
+    return int(service_id)
+
+
+def _get_category_id(client, category_name: str) -> Optional[int]:
+    r = client.table("categories").select("id").eq("name", category_name).limit(1).execute()
+    if r.data:
+        return int(r.data[0]["id"])
+    return None
+
+
+def list_category_names() -> List[str]:
+    try:
+        client = get_supabase_client()
+        if not client:
+            log_error("❌ [CATEGORIES] list_category_names: no client")
+            return []
+        r = client.table("categories").select("name").order("id").execute()
+        if not r.data:
+            return []
+        return [row["name"] for row in r.data]
+    except Exception as e:
+        log_error(f"❌ [CATEGORIES] list_category_names: {type(e).__name__}: {str(e)}")
+        return []
+
+
+def insert_category(name: str) -> bool:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        if _get_category_id(client, name) is not None:
+            log_error(f"⚠️ [CATEGORIES] insert_category: '{name}' already exists")
+            return False
+        client.table("categories").insert({"name": name}).execute()
+        log_error(f"✅ [CATEGORIES] inserted '{name}'")
+        return True
+    except Exception as e:
+        log_error(f"❌ [CATEGORIES] insert_category: {type(e).__name__}: {str(e)}")
+        return False
+
+
+def delete_category_by_name(name: str) -> bool:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        cid = _get_category_id(client, name)
+        if cid is None:
+            log_error(f"⚠️ [CATEGORIES] delete: '{name}' not found")
+            return False
+        client.table("categories").delete().eq("id", cid).execute()
+        log_error(f"✅ [CATEGORIES] deleted '{name}' (id={cid})")
+        return True
+    except Exception as e:
+        log_error(f"❌ [CATEGORIES] delete_category_by_name: {type(e).__name__}: {str(e)}")
+        return False
+
+
+def insert_service_in_category(category_name: str, service_id, service_name: str) -> bool:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        cid = _get_category_id(client, category_name)
+        if cid is None:
+            log_error(f"⚠️ [SERVICES] insert: category '{category_name}' not found")
+            return False
+        api_id = _normalize_api_service_id(service_id)
+        dup = (
+            client.table("services")
+            .select("id")
+            .eq("category_id", cid)
+            .eq("service_api_id", api_id)
+            .limit(1)
+            .execute()
+        )
+        if dup.data:
+            log_error(f"⚠️ [SERVICES] service_api_id={api_id} already in '{category_name}'")
+            return False
+        row = {
+            "category_id": cid,
+            "service_api_id": api_id,
+            "service_name": service_name or "",
+        }
+        client.table("services").insert(row).execute()
+        log_error(f"✅ [SERVICES] added api_id={api_id} to '{category_name}'")
+        return True
+    except Exception as e:
+        log_error(f"❌ [SERVICES] insert_service_in_category: {type(e).__name__}: {str(e)}")
+        return False
+
+
+def delete_service_in_category(category_name: str, service_id) -> bool:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        cid = _get_category_id(client, category_name)
+        if cid is None:
+            log_error(f"⚠️ [SERVICES] delete: category '{category_name}' not found")
+            return False
+        api_id = _normalize_api_service_id(service_id)
+        before = (
+            client.table("services")
+            .select("id")
+            .eq("category_id", cid)
+            .eq("service_api_id", api_id)
+            .limit(1)
+            .execute()
+        )
+        if not before.data:
+            log_error(f"⚠️ [SERVICES] delete: api_id={api_id} not in '{category_name}'")
+            return False
+        client.table("services").delete().eq("category_id", cid).eq("service_api_id", api_id).execute()
+        log_error(f"✅ [SERVICES] removed api_id={api_id} from '{category_name}'")
+        return True
+    except Exception as e:
+        log_error(f"❌ [SERVICES] delete_service_in_category: {type(e).__name__}: {str(e)}")
+        return False
+
+
+def select_services_for_category(category_name: str) -> List[Dict[str, Any]]:
+    """قائمة خدمات القسم بصيغة متوافقة مع bot: service_id, service_name."""
+    try:
+        client = get_supabase_client()
+        if not client:
+            return []
+        cid = _get_category_id(client, category_name)
+        if cid is None:
+            return []
+        r = (
+            client.table("services")
+            .select("service_api_id, service_name")
+            .eq("category_id", cid)
+            .order("id")
+            .execute()
+        )
+        out = []
+        for row in r.data or []:
+            out.append(
+                {
+                    "service_id": row.get("service_api_id"),
+                    "service_name": row.get("service_name") or "خدمة",
+                }
+            )
+        return out
+    except Exception as e:
+        log_error(f"❌ [SERVICES] select_services_for_category: {type(e).__name__}: {str(e)}")
+        return []
+
+
+def select_all_services_flat() -> List[Dict[str, Any]]:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return []
+        r = (
+            client.table("services")
+            .select("service_api_id, service_name, category_id")
+            .order("id")
+            .execute()
+        )
+        if not r.data:
+            return []
+        cat_map: Dict[int, str] = {}
+        cr = client.table("categories").select("id, name").execute()
+        for c in cr.data or []:
+            cat_map[int(c["id"])] = c["name"]
+        flat = []
+        for row in r.data:
+            cid = int(row["category_id"])
+            flat.append(
+                {
+                    "category": cat_map.get(cid, "?"),
+                    "service_id": row.get("service_api_id"),
+                    "service_name": row.get("service_name") or "خدمة",
+                }
+            )
+        return flat
+    except Exception as e:
+        log_error(f"❌ [SERVICES] select_all_services_flat: {type(e).__name__}: {str(e)}")
+        return []
+
+
+def lookup_service_by_api_id(service_id) -> Optional[Dict[str, Any]]:
+    try:
+        client = get_supabase_client()
+        if not client:
+            return None
+        api_id = _normalize_api_service_id(service_id)
+        r = (
+            client.table("services")
+            .select("service_api_id, service_name, category_id")
+            .eq("service_api_id", api_id)
+            .limit(1)
+            .execute()
+        )
+        if not r.data:
+            return None
+        row = r.data[0]
+        cid = int(row["category_id"])
+        cn = client.table("categories").select("name").eq("id", cid).limit(1).execute()
+        cat_name = cn.data[0]["name"] if cn.data else "?"
+        return {
+            "category": cat_name,
+            "service_id": row.get("service_api_id"),
+            "service_name": row.get("service_name") or "خدمة",
+        }
+    except Exception as e:
+        log_error(f"❌ [SERVICES] lookup_service_by_api_id: {type(e).__name__}: {str(e)}")
+        return None
+
+
+# =====================================================
 # TEST FUNCTION - Run this to verify connection
 # =====================================================
 
@@ -511,11 +796,14 @@ def test_database_connection():
                 'username': 'test_user',
                 'first_name': 'Test',
                 'balance': 0.0
-            }).execute()
+            }).select('user_id').execute()
             
-            if result.data:
+            ok = bool(result.data)
+            if not ok:
+                chk = client.table('users').select('user_id').eq('user_id', test_user_id).limit(1).execute()
+                ok = bool(chk.data)
+            if ok:
                 log_error(f"✅ Test user inserted successfully!")
-                # Clean up
                 client.table('users').delete().eq('user_id', test_user_id).execute()
                 log_error(f"🧹 Test user cleaned up")
             else:

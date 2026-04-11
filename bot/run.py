@@ -13,6 +13,7 @@ import requests
 from config import BOT_TOKEN
 from bot import handle_update
 from functions import log_error
+from database import init_db
 
 
 # إنشاء تطبيق Flask
@@ -322,6 +323,12 @@ if __name__ == "__main__":
     log_error("=" * 60)
     log_error("🚀 Starting SMM Bot in Webhook Mode...")
     log_error("=" * 60)
+    
+    log_error("🗄️ تهيئة الاتصال بـ Supabase...")
+    if init_db():
+        log_error("✅ Supabase: جاهز")
+    else:
+        log_error("❌ Supabase: فشل التحقق — راجع المفاتيح والجداول في لوحة التحكم")
     
     # الحصول على المنفذ من متغيرات البيئة
     port = int(os.environ.get("PORT", 10000))

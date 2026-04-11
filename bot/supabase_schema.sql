@@ -21,14 +21,18 @@ CREATE TABLE IF NOT EXISTS categories (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Services table (stores ONLY API ID, not name or price)
+-- Services table (API ID + display name for the bot UI)
 CREATE TABLE IF NOT EXISTS services (
     id SERIAL PRIMARY KEY,
     category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
     service_api_id INTEGER NOT NULL,
+    service_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(category_id, service_api_id)
 );
+
+-- Existing projects: add display name column if the table was created from an older schema
+ALTER TABLE services ADD COLUMN IF NOT EXISTS service_name TEXT NOT NULL DEFAULT '';
 
 -- Pricing rules table (per-service pricing)
 CREATE TABLE IF NOT EXISTS pricing_rules (

@@ -12,7 +12,10 @@ from database import (
     get_user,
     update_user_balance,
     user_exists as db_user_exists,
-    get_all_users
+    get_all_users_count,
+    get_setting,
+    set_setting,
+    delete_setting,
 )
 
 
@@ -162,8 +165,7 @@ def getAllUsersCount():
     @return: int - عدد المستخدمين
     """
     try:
-        users = get_all_users()
-        return len(users)
+        return get_all_users_count()
     except Exception as e:
         log_error(f"❌ خطأ في getAllUsersCount: {str(e)}")
         return 0
@@ -185,15 +187,12 @@ def getUserInfo(user_id):
 
 
 # ============================================
-# Admin Notification Settings
+# Admin Notification Settings (جدول settings في Supabase)
 # ============================================
 
-# هذه الإعدادات يمكن أن تبقى في JSON لأنها ليست حرجة
-# These settings can stay in JSON as they're not critical
-NOTIFICATIONS_FILE = "admin_notifications.json"
+_SETTING_NEW_USER_NOTIF = "new_user_notifications"
+_SETTING_CHANNEL_LINK = "channel_invite_link"
 
-import json
-import os
 
 def isNewUserNotificationsEnabled():
     """
@@ -201,12 +200,10 @@ def isNewUserNotificationsEnabled():
     Check if new user notifications are enabled
     """
     try:
-        if os.path.exists(NOTIFICATIONS_FILE):
-            with open(NOTIFICATIONS_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config.get('new_user_notifications', True)
-        return True
-    except:
+        raw = get_setting(_SETTING_NEW_USER_NOTIF, "true").strip().lower()
+        return raw in ("true", "1", "yes", "on")
+    except Exception as e:
+        log_error(f"❌ خطأ في isNewUserNotificationsEnabled: {str(e)}")
         return True
 
 
@@ -218,11 +215,9 @@ def toggleNewUserNotifications():
     try:
         current = isNewUserNotificationsEnabled()
         new_state = not current
-        
-        config = {'new_user_notifications': new_state}
-        with open(NOTIFICATIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
-        
+        if not set_setting(_SETTING_NEW_USER_NOTIF, "true" if new_state else "false"):
+            log_error("❌ toggleNewUserNotifications: فشل حفظ الإعداد في Supabase")
+            return current
         log_error(f"✅ New user notifications: {'ENABLED' if new_state else 'DISABLED'}")
         return new_state
     except Exception as e:
@@ -231,10 +226,8 @@ def toggleNewUserNotifications():
 
 
 # ============================================
-# Channel Configuration
+# Channel Configuration (جدول settings في Supabase)
 # ============================================
-
-CHANNEL_CONFIG_FILE = "channel_config.json"
 
 def getChannelConfig():
     """
@@ -242,12 +235,12 @@ def getChannelConfig():
     Get channel configuration
     """
     try:
-        if os.path.exists(CHANNEL_CONFIG_FILE):
-            with open(CHANNEL_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config
-        return None
-    except:
+        link = get_setting(_SETTING_CHANNEL_LINK, "")
+        if not link:
+            return None
+        return {"invite_link": link, "chat_id": None, "username": link}
+    except Exception as e:
+        log_error(f"❌ خطأ في getChannelConfig: {str(e)}")
         return None
 
 
@@ -257,14 +250,12 @@ def setChannelConfig(chat_id, invite_link):
     Save channel configuration
     """
     try:
-        config = {
-            'chat_id': chat_id,
-            'invite_link': invite_link
-        }
-        with open(CHANNEL_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
-        
-        log_error(f"✅ Channel config saved: {chat_id}")
+        if invite_link is None:
+            return False
+        text = str(invite_link).strip().lstrip("@")
+        if not set_setting(_SETTING_CHANNEL_LINK, text):
+            return False
+        log_error(f"✅ Channel config saved (invite_link set)")
         return True
     except Exception as e:
         log_error(f"❌ خطأ في setChannelConfig: {str(e)}")
@@ -277,11 +268,10 @@ def removeChannelConfig():
     Remove channel configuration
     """
     try:
-        if os.path.exists(CHANNEL_CONFIG_FILE):
-            os.remove(CHANNEL_CONFIG_FILE)
-            log_error("✅ Channel config removed")
-            return True
-        return False
+        ok = delete_setting(_SETTING_CHANNEL_LINK)
+        if ok:
+            log_error("✅ Channel config removed from Supabase")
+        return ok
     except Exception as e:
         log_error(f"❌ خطأ في removeChannelConfig: {str(e)}")
         return False
@@ -350,16 +340,14 @@ def setChannelUsername(username):
     """
     Set channel username (alias for compatibility)
     """
-    # This is a simplified version - stores username as config
     try:
-        config = {
-            'username': username,
-            'invite_link': username
-        }
-        with open(CHANNEL_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
-        
-        log_error(f"✅ Channel username set: {username}")
+        text = str(username).strip().lstrip("@")
+        if not text:
+            log_error("❌ setChannelUsername: empty value")
+            return False
+        if not set_setting(_SETTING_CHANNEL_LINK, text):
+            return False
+        log_error(f"✅ Channel username set: {text}")
         return True
     except Exception as e:
         log_error(f"❌ خطأ في setChannelUsername: {str(e)}")
