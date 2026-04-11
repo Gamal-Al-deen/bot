@@ -285,3 +285,82 @@ def removeChannelConfig():
     except Exception as e:
         log_error(f"❌ خطأ في removeChannelConfig: {str(e)}")
         return False
+
+
+# ============================================
+# Compatibility Aliases (للحفاظ على التوافق مع bot.py)
+# ============================================
+# هذه الدوال هي أسماء بديلة للدوال الأصلية
+# الهدف: عدم الحاجة لتعديل bot.py
+
+def getBalance(user_id):
+    """
+    Alias for getUserBalance - للحفاظ على التوافق
+    """
+    return getUserBalance(user_id)
+
+
+def deductBalance(user_id, amount):
+    """
+    Alias for removeBalance - للحفاظ على التوافق
+    """
+    return removeBalance(user_id, amount)
+
+
+def getAllUserIds():
+    """
+    Get all user IDs from Supabase
+    """
+    try:
+        from database import get_all_user_ids
+        return get_all_user_ids()
+    except Exception as e:
+        log_error(f"❌ خطأ في getAllUserIds: {str(e)}")
+        return []
+
+
+def isNewUser(user_id):
+    """
+    Check if user is new (doesn't exist in database)
+    """
+    return not userExists(user_id)
+
+
+def getChannelUsername():
+    """
+    Get channel username from config
+    """
+    try:
+        config = getChannelConfig()
+        if config:
+            return config.get('invite_link', None)
+        return None
+    except:
+        return None
+
+
+def isChannelConfigured():
+    """
+    Check if channel is configured
+    """
+    return getChannelConfig() is not None
+
+
+def setChannelUsername(username):
+    """
+    Set channel username (alias for compatibility)
+    """
+    # This is a simplified version - stores username as config
+    try:
+        config = {
+            'username': username,
+            'invite_link': username
+        }
+        with open(CHANNEL_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        
+        log_error(f"✅ Channel username set: {username}")
+        return True
+    except Exception as e:
+        log_error(f"❌ خطأ في setChannelUsername: {str(e)}")
+        return False
