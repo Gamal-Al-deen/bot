@@ -322,6 +322,179 @@ def update_user_balance(user_id: int, new_balance: float) -> bool:
     return set_balance(user_id, new_balance)
 
 
+# ============================================
+# Categories & Services Functions
+# ============================================
+
+def add_category(name: str) -> bool:
+    """
+    Add a new category to Supabase
+    @param name: Category name
+    @return: True if successful
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        
+        log_error(f"📁 [ADD_CATEGORY] Attempting to add category: {name}")
+        
+        # Insert category
+        result = client.table('categories').insert({'name': name}).execute()
+        
+        if result.data:
+            log_error(f"✅ [ADD_CATEGORY] Category '{name}' added successfully with ID: {result.data[0]['id']}")
+            return True
+        
+        log_error(f"❌ [ADD_CATEGORY] Failed to add category '{name}'")
+        return False
+        
+    except Exception as e:
+        # Check if it's a duplicate error
+        if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
+            log_error(f"⚠️ [ADD_CATEGORY] Category '{name}' already exists")
+        else:
+            log_error(f"❌ [ADD_CATEGORY] Error: {type(e).__name__}: {str(e)}")
+            import traceback
+            log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+        return False
+
+
+def get_all_categories() -> List[Dict[str, Any]]:
+    """
+    Get all categories from Supabase
+    @return: List of categories
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return []
+        
+        result = client.table('categories').select('*').order('id', desc=False).execute()
+        categories = result.data if result.data else []
+        
+        log_error(f"📁 [GET_CATEGORIES] Retrieved {len(categories)} categories")
+        return categories
+        
+    except Exception as e:
+        log_error(f"❌ [GET_CATEGORIES] Error: {str(e)}")
+        return []
+
+
+def delete_category(category_id: int) -> bool:
+    """
+    Delete a category from Supabase
+    @param category_id: Category ID
+    @return: True if successful
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        
+        log_error(f"🗑️ [DELETE_CATEGORY] Deleting category ID: {category_id}")
+        
+        result = client.table('categories').delete().eq('id', category_id).execute()
+        
+        if result.data:
+            log_error(f"✅ [DELETE_CATEGORY] Category {category_id} deleted")
+            return True
+        
+        log_error(f"❌ [DELETE_CATEGORY] Failed to delete category {category_id}")
+        return False
+        
+    except Exception as e:
+        log_error(f"❌ [DELETE_CATEGORY] Error: {str(e)}")
+        return False
+
+
+def add_service(category_id: int, service_api_id: int) -> bool:
+    """
+    Add a new service to Supabase
+    @param category_id: Category ID
+    @param service_api_id: Service API ID from SMM panel
+    @return: True if successful
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        
+        log_error(f"🛠️ [ADD_SERVICE] Adding service API ID: {service_api_id} to category: {category_id}")
+        
+        # Insert service
+        result = client.table('services').insert({
+            'category_id': category_id,
+            'service_api_id': service_api_id
+        }).execute()
+        
+        if result.data:
+            log_error(f"✅ [ADD_SERVICE] Service added successfully with ID: {result.data[0]['id']}")
+            return True
+        
+        log_error(f"❌ [ADD_SERVICE] Failed to add service")
+        return False
+        
+    except Exception as e:
+        # Check if it's a duplicate error
+        if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
+            log_error(f"⚠️ [ADD_SERVICE] Service API ID {service_api_id} already exists in this category")
+        else:
+            log_error(f"❌ [ADD_SERVICE] Error: {type(e).__name__}: {str(e)}")
+            import traceback
+            log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+        return False
+
+
+def get_services_by_category(category_id: int) -> List[Dict[str, Any]]:
+    """
+    Get all services for a specific category
+    @param category_id: Category ID
+    @return: List of services
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return []
+        
+        result = client.table('services').select('*').eq('category_id', category_id).execute()
+        services = result.data if result.data else []
+        
+        log_error(f"🛠️ [GET_SERVICES] Retrieved {len(services)} services for category {category_id}")
+        return services
+        
+    except Exception as e:
+        log_error(f"❌ [GET_SERVICES] Error: {str(e)}")
+        return []
+
+
+def delete_service(service_id: int) -> bool:
+    """
+    Delete a service from Supabase
+    @param service_id: Service ID
+    @return: True if successful
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return False
+        
+        log_error(f"🗑️ [DELETE_SERVICE] Deleting service ID: {service_id}")
+        
+        result = client.table('services').delete().eq('id', service_id).execute()
+        
+        if result.data:
+            log_error(f"✅ [DELETE_SERVICE] Service {service_id} deleted")
+            return True
+        
+        log_error(f"❌ [DELETE_SERVICE] Failed to delete service {service_id}")
+        return False
+        
+    except Exception as e:
+        log_error(f"❌ [DELETE_SERVICE] Error: {str(e)}")
+        return False
+
+
 def get_all_users_count() -> int:
     """
     Get total users count
