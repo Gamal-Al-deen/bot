@@ -331,6 +331,31 @@ def get_all_users_count() -> int:
         return 0
 
 
+def get_all_users() -> List[Dict[str, Any]]:
+    """
+    Get all users (simple list)
+    @return: List of user dictionaries
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            return []
+        
+        result = client.table('users').select(
+            'user_id, username, first_name, balance, created_at'
+        ).order(
+            'created_at', desc=True
+        ).execute()
+        
+        users = result.data if result.data else []
+        log_error(f"👥 [GET_ALL_USERS] Retrieved {len(users)} users")
+        return users
+        
+    except Exception as e:
+        log_error(f"❌ [GET_ALL_USERS] Error: {str(e)}")
+        return []
+
+
 def get_all_user_ids() -> List[int]:
     """
     Get all user IDs
