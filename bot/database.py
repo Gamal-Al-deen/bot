@@ -55,7 +55,8 @@ def init_db() -> bool:
         # Check if supabase library is installed
         if not HAS_SUPABASE:
             log_error("❌ CRITICAL: supabase library is NOT installed!")
-            log_error("💡 Run: pip install supabase")
+            log_error("💡 Run: pip install supabase>=2.10.0")
+            log_error("💡 Or: pip install -r requirements.txt")
             return False
         
         # Log configuration (hide sensitive parts)
@@ -79,8 +80,26 @@ def init_db() -> bool:
         
         # Create Supabase client
         log_error("🔌 Creating Supabase client...")
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        log_error("✅ Supabase client created successfully")
+        try:
+            supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            log_error("✅ Supabase client created successfully")
+        except TypeError as te:
+            # Handle proxy parameter error specifically
+            if "proxy" in str(te).lower():
+                log_error("❌ CRITICAL ERROR: proxy parameter issue detected!")
+                log_error("💡 This is caused by an outdated supabase library version")
+                log_error("💡 FIX: Run 'pip install --upgrade supabase>=2.10.0'")
+                log_error(f"💡 Full error: {str(te)}")
+                import traceback
+                log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+                return False
+            else:
+                raise
+        except Exception as client_err:
+            log_error(f"❌ CRITICAL ERROR creating client: {type(client_err).__name__}: {str(client_err)}")
+            import traceback
+            log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
+            return False
         
         # التحقق من كل الجداول الحرجة — بدونها فشل الإدراج (مستخدمون / أقسام / خدمات) دون سبب واضح في التيليجرام
         log_error("🧪 Verifying required tables (users, settings, categories, services)...")

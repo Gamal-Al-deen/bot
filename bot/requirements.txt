@@ -8,7 +8,8 @@ requests==2.31.0
 flask==3.0.0
 
 # Supabase Database (مطلوب لقاعدة البيانات)
-supabase==2.3.4
+# Updated to latest stable version to fix proxy parameter error
+supabase>=2.10.0
 
 # لا حاجة لمكتبات إضافية
 # No additional libraries needed

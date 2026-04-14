@@ -324,6 +324,17 @@ if __name__ == "__main__":
     log_error("🚀 Starting SMM Bot in Webhook Mode...")
     log_error("=" * 60)
     
+    # Check if supabase is installed before anything else
+    try:
+        from supabase import create_client
+        log_error("✅ Supabase library is installed")
+    except ImportError:
+        log_error("❌ CRITICAL: Supabase library is NOT installed!")
+        log_error("💡 Please run: pip install -r requirements.txt")
+        log_error("💡 Or run: python check_and_fix_libraries.py")
+        import sys
+        sys.exit(1)
+    
     log_error("🗄️ تهيئة الاتصال بـ Supabase...")
     if init_db():
         log_error("✅ Supabase: جاهز")
