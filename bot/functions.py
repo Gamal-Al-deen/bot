@@ -11,16 +11,20 @@ from config import BOT_TOKEN, TELEGRAM_API_URL
 
 def log_error(message):
     """
-    تسجيل الأخطاء في ملف log.txt
-    Log errors to log.txt
+    تسجيل الأخطاء في ملف log.txt وعلى stdout (مهم لـ Render/Docker حيث تظهر السجلات في لوحة التحكم فقط من الطرفية).
+    Log errors to log.txt and stdout (critical for cloud hosts that only stream console output).
     
     @param message: الرسالة التي سيتم تسجيلها
     """
     try:
+        print(str(message), flush=True)
+    except Exception:
+        pass
+    try:
         with open('log.txt', 'a', encoding='utf-8') as f:
             f.write(f"{message}\n")
     except Exception as e:
-        print(f"خطأ في كتابة اللوغ: {str(e)}")
+        print(f"خطأ في كتابة اللوغ: {str(e)}", flush=True)
 
 
 def build_inline_keyboard(buttons):

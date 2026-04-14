@@ -4,6 +4,8 @@
 Configuration file - Contains all static variables
 """
 
+import os
+
 # ⚠️ ضع هنا توكن البوت الخاص بك
 # ⚠️ Put your bot token here
 BOT_TOKEN = "8641656014:AAE4n6WqbnusGtWkf5a-RuMXomVRGIN_J5M"
@@ -53,11 +55,23 @@ STATE_WAITING_ADMIN_USER_ID = "WAITING_ADMIN_USER_ID"
 # Supabase Configuration
 # ============================================
 # ⚠️ ضع هنا رابط Supabase الخاص بك
+
+
+
 # ⚠️ Put your Supabase URL here
 # تجده في: Project Settings > API > Project URL
-SUPABASE_URL = "https://fjmhekbuhwjtwmwucrwc.supabase.co"  # مثال: https://xxxxx.supabase.co
+# على Render/VPS يُفضّل تعيين SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY في Environment (تتجاوز القيم أدناه).
+_SUPABASE_URL_FALLBACK = "https://fjmhekbuhwjtwmwucrwc.supabase.co"
+_SUPABASE_KEY_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqbWhla2J1aHdqdHdtd3VjcndjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTc3MjMzMSwiZXhwIjoyMDkxMzQ4MzMxfQ.8S427ImdS_ETWeJco7lvWGY7MiM7c8KeEYht7zYQ_YQ"
+
+SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").strip() or _SUPABASE_URL_FALLBACK
+_env_key = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_KEY")
+    or ""
+).strip()
+SUPABASE_KEY = _env_key or _SUPABASE_KEY_FALLBACK
 
 # ⚠️ ضع هنا مفتاح الخدمة من Supabase
 # ⚠️ Put your Supabase Service Role Key here
 # تجده في: Project Settings > API > service_role key (secret)
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqbWhla2J1aHdqdHdtd3VjcndjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTc3MjMzMSwiZXhwIjoyMDkxMzQ4MzMxfQ.8S427ImdS_ETWeJco7lvWGY7MiM7c8KeEYht7zYQ_YQ"

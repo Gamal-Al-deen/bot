@@ -327,6 +327,14 @@ if __name__ == "__main__":
     log_error("🗄️ تهيئة الاتصال بـ Supabase...")
     if init_db():
         log_error("✅ Supabase: جاهز")
+        
+        # Run direct API test to verify connection
+        log_error("\n🔍 Running direct API test...")
+        from database import test_supabase_api_direct
+        if test_supabase_api_direct():
+            log_error("✅ Direct API test passed - Supabase is fully operational!")
+        else:
+            log_error("⚠️ Direct API test failed - check configuration")
     else:
         log_error("❌ Supabase: فشل التحقق — راجع المفاتيح والجداول في لوحة التحكم")
     

@@ -1,38 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-نظام التسعير المتقدم
-Advanced Pricing System
+نظام التسعير المتقدم - محدث لاستخدام Supabase فقط
+Advanced Pricing System - Updated to use Supabase only (no local JSON)
 """
 
-import json
-import os
 from functions import log_error
-
-# مسار ملف إعدادات التسعير
-PRICING_FILE = "pricing_config.json"
+from database import get_setting, set_setting
 
 
 def getPricingConfig():
     """
-    قراءة إعدادات التسعير من الملف
-    Read pricing configuration from file
+    قراءة إعدادات التسعير من Supabase
+    Read pricing configuration from Supabase
     
     @return: dict - إعدادات التسعير
     """
     try:
-        if os.path.exists(PRICING_FILE):
-            with open(PRICING_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config
-        else:
-            # إعدادات افتراضية
-            default_config = {
-                "type": "percent",  # percent أو fixed
-                "value": 50  # النسبة المئوية أو المبلغ الثابت
-            }
-            savePricingConfig(default_config)
-            log_error("✅ تم إنشاء ملف إعدادات التسعير الافتراضية")
-            return default_config
+        pricing_type = get_setting('pricing_type', 'percent')
+        pricing_value = float(get_setting('pricing_value', '50'))
+        
+        config = {
+            "type": pricing_type,
+            "value": pricing_value
+        }
+        
+        log_error(f"✅ [PRICING] Loaded config from Supabase: type={pricing_type}, value={pricing_value}")
+        return config
     
     except Exception as e:
         log_error(f"❌ خطأ في getPricingConfig: {str(e)}")
@@ -41,14 +34,19 @@ def getPricingConfig():
 
 def savePricingConfig(config):
     """
-    حفظ إعدادات التسعير في الملف
-    Save pricing configuration to file
+    حفظ إعدادات التسعير في Supabase
+    Save pricing configuration to Supabase
     
     @param config: dict - إعدادات التسعير
     """
     try:
-        with open(PRICING_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+        pricing_type = config.get('type', 'percent')
+        pricing_value = str(config.get('value', 50))
+        
+        set_setting('pricing_type', pricing_type)
+        set_setting('pricing_value', pricing_value)
+        
+        log_error(f"✅ [PRICING] Saved config to Supabase: type={pricing_type}, value={pricing_value}")
     
     except Exception as e:
         log_error(f"❌ خطأ في savePricingConfig: {str(e)}")

@@ -43,7 +43,8 @@ from pricing_system import (
     calculateOrderTotalPrice
 )
 from database import (
-    get_all_users_paginated
+    get_all_users_paginated,
+    get_last_supabase_error,
 )
 from admin_system import (
     isAdmin, 
@@ -1656,7 +1657,11 @@ def handle_add_category_input(chat_id, user_id, text):
             
             log_error(f"📁 Category added: {category_name} by admin {user_id}")
         else:
-            send_message(chat_id, "❌ فشل إضافة القسم. قد يكون موجوداً بالفعل.")
+            diag = get_last_supabase_error()
+            msg = "❌ فشل إضافة القسم.\nقد يكون الاسم مكرراً، أو قاعدة البيانات غير مهيأة."
+            if diag:
+                msg += f"\n\n📋 تفاصيل:\n<code>{diag[:400]}</code>"
+            send_message(chat_id, msg)
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_add_category_input: {str(e)}")
@@ -1878,7 +1883,11 @@ def handle_confirm_add_service(chat_id, user_id):
             
             log_error(f"✅ Service {service_id} added to {category} by admin {user_id}")
         else:
-            send_message(chat_id, "❌ فشل إضافة الخدمة. قد تكون موجودة بالفعل.")
+            diag = get_last_supabase_error()
+            msg = "❌ فشل إضافة الخدمة.\nقد تكون مكررة، أو هناك مشكلة في جدول services."
+            if diag:
+                msg += f"\n\n📋 <code>{diag[:400]}</code>"
+            send_message(chat_id, msg)
     
     except Exception as e:
         log_error(f"❌ خطأ في handle_confirm_add_service: {str(e)}")

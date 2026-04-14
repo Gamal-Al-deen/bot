@@ -22,6 +22,24 @@ from typing import Optional, Dict, List, Any
 # Global Supabase client instance
 supabase_client: Optional[Client] = None
 
+# آخر خطأ واضح من PostgREST/Supabase (للتشخيص وعرض مختصر للأدمن)
+_last_supabase_error: str = ""
+
+# جداول يجب أن تكون موجودة ومعرّفة في PostgREST وإلا فشل كل الإدراج
+REQUIRED_SCHEMA_TABLES = ("users", "settings", "categories", "services")
+
+
+def get_last_supabase_error() -> str:
+    """آخر رسالة خطأ مسجّلة من طبقة قاعدة البيانات (مختصرة)."""
+    return _last_supabase_error
+
+
+def _record_supabase_failure(context: str, exc: BaseException) -> None:
+    global _last_supabase_error
+    msg = f"{context}: {type(exc).__name__}: {str(exc)}"
+    _last_supabase_error = msg[:2000]
+    log_error(f"❌ [SUPABASE] {msg}")
+
 
 def init_db() -> bool:
     """
@@ -64,32 +82,35 @@ def init_db() -> bool:
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
         log_error("✅ Supabase client created successfully")
         
-        # Test connection (settings أولاً، ثم users إن فشل الأول)
-        log_error("🧪 Testing database connection...")
-        last_err = None
-        for probe_table in ('settings', 'users'):
+        # التحقق من كل الجداول الحرجة — بدونها فشل الإدراج (مستخدمون / أقسام / خدمات) دون سبب واضح في التيليجرام
+        log_error("🧪 Verifying required tables (users, settings, categories, services)...")
+        for probe_table in REQUIRED_SCHEMA_TABLES:
             try:
-                test_query = supabase_client.table(probe_table).select('*').limit(1).execute()
-                log_error(f"📊 Test query on '{probe_table}': rows={len(test_query.data) if test_query.data else 0}")
-                if hasattr(test_query, 'error') and test_query.error:
-                    log_error(f"❌ Database query error: {test_query.error}")
-                    return False
-                log_error(f"✅ Database connection test PASSED (via '{probe_table}')")
-                log_error("=" * 60)
-                log_error("🎉 DATABASE INITIALIZATION COMPLETED SUCCESSFULLY")
-                log_error("=" * 60)
-                return True
+                test_query = supabase_client.table(probe_table).select("*").limit(1).execute()
+                if hasattr(test_query, "error") and test_query.error:
+                    raise RuntimeError(f"PostgREST error: {test_query.error}")
+                n = len(test_query.data) if test_query.data else 0
+                log_error(f"   ✓ table '{probe_table}' OK (sample rows in response: {n})")
             except Exception as probe_exc:
-                last_err = probe_exc
-                log_error(f"⚠️ Probe on '{probe_table}' failed: {type(probe_exc).__name__}: {str(probe_exc)[:200]}")
-                continue
-        log_error(f"❌ Database query failed on all probe tables. Last error: {last_err}")
-        if last_err and ("row-level security" in str(last_err).lower() or "RLS" in str(last_err).upper()):
-            log_error("⚠️ This appears to be an RLS (Row Level Security) issue")
-            log_error("💡 Make sure you're using service_role key, not anon key")
-        return False
+                _record_supabase_failure(f"init_db.verify.{probe_table}", probe_exc)
+                log_error(
+                    f"❌ الجدول '{probe_table}' غير موجود أو غير مُتاح عبر REST API.\n"
+                    f"   غالباً لم يُنفَّذ سكربت supabase_schema.sql أو الاسم مختلف.\n"
+                    f"   في لوحة Supabase: SQL → الصق محتوى supabase_schema.sql → Run."
+                )
+                if "row-level security" in str(probe_exc).lower() or "RLS" in str(probe_exc).upper():
+                    log_error("💡 إن ظهر RLS: استخدم مفتاح service_role (ليس anon) في المتغير SUPABASE_SERVICE_ROLE_KEY")
+                supabase_client = None
+                return False
+        
+        log_error("=" * 60)
+        log_error("🎉 DATABASE INITIALIZATION COMPLETED SUCCESSFULLY")
+        log_error("=" * 60)
+        return True
             
     except Exception as e:
+        _record_supabase_failure("init_db", e)
+        supabase_client = None
         log_error(f"❌ CRITICAL ERROR in init_db: {type(e).__name__}")
         log_error(f"❌ Error message: {str(e)}")
         import traceback
@@ -137,14 +158,23 @@ def set_setting(key: str, value: str) -> bool:
             return False
         existing = client.table("settings").select("key").eq("key", key).limit(1).execute()
         val = str(value)
+        log_error(f"📊 [SETTINGS] set_setting: key={key!r}, value={val!r}")
+        
         if existing.data:
-            client.table("settings").update({"value": val}).eq("key", key).execute()
+            log_error(f"🔄 [SETTINGS] Updating existing key={key!r}")
+            result = client.table("settings").update({"value": val}).eq("key", key).execute()
+            log_error(f"📊 [SETTINGS] Update response: data={result.data}")
         else:
-            client.table("settings").insert({"key": key, "value": val}).execute()
+            log_error(f"➕ [SETTINGS] Inserting new key={key!r}")
+            result = client.table("settings").insert({"key": key, "value": val}).execute()
+            log_error(f"📊 [SETTINGS] Insert response: data={result.data}")
+        
         log_error(f"✅ [SETTINGS] set key={key!r}")
         return True
     except Exception as e:
         log_error(f"❌ [SETTINGS] set_setting({key!r}): {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [SETTINGS] Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -177,7 +207,10 @@ def create_user(user_id: int, username: str = "لا يوجد", first_name: str =
         
         client = get_supabase_client()
         if not client:
-            log_error("❌ [CREATE_USER] Supabase client is None!")
+            _record_supabase_failure(
+                "create_user",
+                RuntimeError("عميل Supabase غير متاح — غالباً فشل init_db (جداول ناقصة أو مفتاح خاطئ). راجع سجلات الخادم عند التشغيل."),
+            )
             return False
         
         # Check if user exists first
@@ -211,7 +244,10 @@ def create_user(user_id: int, username: str = "لا يوجد", first_name: str =
         
         insert_result = client.table('users').insert(user_data).select('user_id').execute()
         
-        log_error(f"📊 [CREATE_USER] Insert result data: {insert_result.data}")
+        log_error(f"📊 [CREATE_USER] Full API response: {insert_result}")
+        log_error(f"📊 [CREATE_USER] Response data: {insert_result.data}")
+        if hasattr(insert_result, 'count'):
+            log_error(f"📊 [CREATE_USER] Response count: {insert_result.count}")
         
         if hasattr(insert_result, 'error') and insert_result.error:
             log_error(f"❌ [CREATE_USER] Insert error: {insert_result.error}")
@@ -312,6 +348,8 @@ def add_balance(user_id: int, amount: float) -> bool:
             'balance': new_balance
         }).eq('user_id', user_id).execute()
         
+        log_error(f"📊 [ADD_BALANCE] Update response: data={result.data}")
+        
         if result.data:
             log_error(f"✅ [ADD_BALANCE] Success! New balance: {new_balance}")
             return True
@@ -348,6 +386,8 @@ def deduct_balance(user_id: int, amount: float) -> bool:
             'balance': new_balance
         }).eq('user_id', user_id).execute()
         
+        log_error(f"📊 [DEDUCT_BALANCE] Update response: data={result.data}")
+        
         if result.data:
             log_error(f"✅ [DEDUCT_BALANCE] Success! New balance: {new_balance}")
             return True
@@ -366,16 +406,23 @@ def set_balance(user_id: int, amount: float) -> bool:
     try:
         client = get_supabase_client()
         if not client:
+            log_error(f"❌ [SET_BALANCE] No client for user {user_id}")
             return False
+        
+        log_error(f"💰 [SET_BALANCE] Setting balance for user {user_id} to {amount}")
         
         result = client.table('users').update({
             'balance': float(amount)
         }).eq('user_id', user_id).execute()
         
+        log_error(f"📊 [SET_BALANCE] Update response: data={result.data}")
+        
         return bool(result.data)
         
     except Exception as e:
-        log_error(f"❌ [SET_BALANCE] Error: {str(e)}")
+        log_error(f"❌ [SET_BALANCE] Error: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [SET_BALANCE] Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -554,7 +601,7 @@ def list_category_names() -> List[str]:
         if not client:
             log_error("❌ [CATEGORIES] list_category_names: no client")
             return []
-        r = client.table("categories").select("name").order("id").execute()
+        r = client.table("categories").select("name").order("id", desc=False).execute()
         if not r.data:
             return []
         return [row["name"] for row in r.data]
@@ -571,11 +618,17 @@ def insert_category(name: str) -> bool:
         if _get_category_id(client, name) is not None:
             log_error(f"⚠️ [CATEGORIES] insert_category: '{name}' already exists")
             return False
-        client.table("categories").insert({"name": name}).execute()
+        
+        log_error(f"📦 [CATEGORIES] Inserting category: name={name!r}")
+        result = client.table("categories").insert({"name": name}).execute()
+        log_error(f"📊 [CATEGORIES] Insert response: data={result.data}")
+        
         log_error(f"✅ [CATEGORIES] inserted '{name}'")
         return True
     except Exception as e:
-        log_error(f"❌ [CATEGORIES] insert_category: {type(e).__name__}: {str(e)}")
+        _record_supabase_failure("insert_category", e)
+        import traceback
+        log_error(f"📋 [CATEGORIES] Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -583,16 +636,23 @@ def delete_category_by_name(name: str) -> bool:
     try:
         client = get_supabase_client()
         if not client:
+            log_error(f"❌ [CATEGORIES] delete: no client for '{name}'")
             return False
         cid = _get_category_id(client, name)
         if cid is None:
             log_error(f"⚠️ [CATEGORIES] delete: '{name}' not found")
             return False
-        client.table("categories").delete().eq("id", cid).execute()
+        
+        log_error(f"🗑️ [CATEGORIES] Deleting category: name={name!r}, id={cid}")
+        result = client.table("categories").delete().eq("id", cid).execute()
+        log_error(f"📊 [CATEGORIES] Delete response: data={result.data}")
+        
         log_error(f"✅ [CATEGORIES] deleted '{name}' (id={cid})")
         return True
     except Exception as e:
         log_error(f"❌ [CATEGORIES] delete_category_by_name: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [CATEGORIES] Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -622,11 +682,32 @@ def insert_service_in_category(category_name: str, service_id, service_name: str
             "service_api_id": api_id,
             "service_name": service_name or "",
         }
-        client.table("services").insert(row).execute()
+        log_error(f"📦 [SERVICES] Inserting service: {row}")
+        
+        try:
+            result = client.table("services").insert(row).execute()
+            log_error(f"📊 [SERVICES] Insert response: data={result.data}")
+        except Exception as e1:
+            err_s = str(e1).lower()
+            if "service_name" in err_s or "42703" in str(e1) or "does not exist" in err_s:
+                log_error(
+                    "⚠️ [SERVICES] العمود service_name غير موجود — محاولة إدراج بدون الاسم. "
+                    "نفّذ: ALTER TABLE services ADD COLUMN IF NOT EXISTS service_name TEXT NOT NULL DEFAULT '';"
+                )
+                try:
+                    client.table("services").insert(
+                        {"category_id": cid, "service_api_id": api_id}
+                    ).execute()
+                except Exception as e2:
+                    _record_supabase_failure("insert_service_in_category.fallback", e2)
+                    return False
+            else:
+                _record_supabase_failure("insert_service_in_category", e1)
+                return False
         log_error(f"✅ [SERVICES] added api_id={api_id} to '{category_name}'")
         return True
     except Exception as e:
-        log_error(f"❌ [SERVICES] insert_service_in_category: {type(e).__name__}: {str(e)}")
+        _record_supabase_failure("insert_service_in_category.outer", e)
         return False
 
 
@@ -634,6 +715,7 @@ def delete_service_in_category(category_name: str, service_id) -> bool:
     try:
         client = get_supabase_client()
         if not client:
+            log_error(f"❌ [SERVICES] delete: no client")
             return False
         cid = _get_category_id(client, category_name)
         if cid is None:
@@ -651,11 +733,17 @@ def delete_service_in_category(category_name: str, service_id) -> bool:
         if not before.data:
             log_error(f"⚠️ [SERVICES] delete: api_id={api_id} not in '{category_name}'")
             return False
-        client.table("services").delete().eq("category_id", cid).eq("service_api_id", api_id).execute()
+        
+        log_error(f"🗑️ [SERVICES] Deleting service: api_id={api_id} from category='{category_name}'")
+        result = client.table("services").delete().eq("category_id", cid).eq("service_api_id", api_id).execute()
+        log_error(f"📊 [SERVICES] Delete response: data={result.data}")
+        
         log_error(f"✅ [SERVICES] removed api_id={api_id} from '{category_name}'")
         return True
     except Exception as e:
         log_error(f"❌ [SERVICES] delete_service_in_category: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [SERVICES] Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -672,7 +760,7 @@ def select_services_for_category(category_name: str) -> List[Dict[str, Any]]:
             client.table("services")
             .select("service_api_id, service_name")
             .eq("category_id", cid)
-            .order("id")
+            .order("id", desc=False)
             .execute()
         )
         out = []
@@ -697,7 +785,7 @@ def select_all_services_flat() -> List[Dict[str, Any]]:
         r = (
             client.table("services")
             .select("service_api_id, service_name, category_id")
-            .order("id")
+            .order("id", desc=False)
             .execute()
         )
         if not r.data:
@@ -820,4 +908,77 @@ def test_database_connection():
         
     except Exception as e:
         log_error(f"❌ TEST FAILED: {str(e)}")
+        return False
+
+
+def test_supabase_api_direct():
+    """
+    Test Supabase connection using direct HTTP POST request
+    This bypasses the Supabase client library and tests the REST API directly
+    """
+    import requests
+    from config import SUPABASE_URL, SUPABASE_KEY
+    
+    log_error("=" * 60)
+    log_error("🧪 TESTING SUPABASE DIRECT API CONNECTION")
+    log_error("=" * 60)
+    
+    # Test configuration
+    log_error(f"📋 SUPABASE_URL: {SUPABASE_URL}")
+    masked_key = SUPABASE_KEY[:20] + "..." if len(SUPABASE_KEY) > 20 else SUPABASE_KEY
+    log_error(f"🔑 SUPABASE_KEY: {masked_key}")
+    
+    url = f"{SUPABASE_URL}/rest/v1/settings"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    
+    # Test INSERT
+    import time
+    test_key = f"api_test_{int(time.time())}"
+    test_data = {"key": test_key, "value": "test_passed"}
+    
+    log_error(f"\n📤 POST {url}")
+    log_error(f"📦 Payload: {test_data}")
+    log_error(f"📋 Headers: apikey={masked_key}, Authorization=Bearer ...")
+    
+    try:
+        response = requests.post(url, json=test_data, headers=headers, timeout=10)
+        
+        log_error(f"\n📥 Status Code: {response.status_code}")
+        log_error(f"📥 Response Headers: {dict(response.headers)}")
+        log_error(f"📥 Response Body: {response.text}")
+        
+        if response.status_code in [200, 201]:
+            log_error("\n✅ DIRECT API TEST PASSED - INSERT successful!")
+            
+            # Cleanup test row
+            log_error(f"\n🧹 Cleaning up test row (key={test_key})...")
+            delete_url = f"{url}?key=eq.{test_key}"
+            delete_response = requests.delete(delete_url, headers=headers, timeout=10)
+            
+            if delete_response.status_code in [200, 204]:
+                log_error("✅ Test row cleaned up successfully")
+            else:
+                log_error(f"⚠️ Cleanup failed (status={delete_response.status_code}), but test passed")
+            
+            return True
+        else:
+            log_error(f"\n❌ DIRECT API TEST FAILED - Status: {response.status_code}")
+            log_error(f"❌ Error Details: {response.text}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        log_error("\n❌ DIRECT API TEST FAILED - Request timed out")
+        return False
+    except requests.exceptions.ConnectionError as e:
+        log_error(f"\n❌ DIRECT API TEST FAILED - Connection error: {str(e)}")
+        return False
+    except Exception as e:
+        log_error(f"\n❌ DIRECT API TEST FAILED - Unexpected error: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 Full traceback:\n{traceback.format_exc()}")
         return False
