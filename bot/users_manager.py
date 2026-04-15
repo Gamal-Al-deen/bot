@@ -174,26 +174,15 @@ def getAllUsersCount():
 def getUserInfo(user_id):
     """
     الحصول على معلومات المستخدم
-    Get user information from Supabase
+    Get user information
     
-    @param user_id: معرف المستخدم (Telegram ID)
+    @param user_id: معرف المستخدم
     @return: dict - معلومات المستخدم أو None
     """
     try:
-        log_error(f"🔍 [GET_USER_INFO] Fetching info for user {user_id}")
-        user_data = get_user(user_id)
-        
-        if user_data:
-            log_error(f"✅ [GET_USER_INFO] User {user_id} found - Balance: {user_data.get('balance', 0.0)}")
-        else:
-            log_error(f"⚠️ [GET_USER_INFO] User {user_id} not found in database")
-        
-        return user_data
-        
+        return get_user(user_id)
     except Exception as e:
-        log_error(f"❌ [GET_USER_INFO] Error: {type(e).__name__}: {str(e)}")
-        import traceback
-        log_error(f"📋 [GET_USER_INFO] Full traceback:\n{traceback.format_exc()}")
+        log_error(f"❌ خطأ في getUserInfo: {str(e)}")
         return None
 
 
