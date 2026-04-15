@@ -311,21 +311,29 @@ def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     Get user data with logging
     """
     try:
+        log_error(f"🔍 [GET_USER] Querying user {user_id} from database...")
+        
         client = get_supabase_client()
         if not client:
+            log_error(f"❌ [GET_USER] No Supabase client available")
             return None
         
         result = client.table('users').select('*').eq('user_id', user_id).execute()
+        
+        log_error(f"📊 [GET_USER] Query result: {result}")
+        log_error(f"📊 [GET_USER] Data: {result.data}")
         
         if result.data and len(result.data) > 0:
             log_error(f"✅ [GET_USER] User {user_id} found")
             return result.data[0]
         
-        log_error(f"⚠️ [GET_USER] User {user_id} not found")
+        log_error(f"⚠️ [GET_USER] User {user_id} not found in database")
         return None
         
     except Exception as e:
         log_error(f"❌ [GET_USER] Error: {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"📋 [GET_USER] Full traceback:\n{traceback.format_exc()}")
         return None
 
 
